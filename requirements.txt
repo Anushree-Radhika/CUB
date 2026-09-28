@@ -1,0 +1,11 @@
+# Install torch FIRST, from a CUDA build that matches your box (V100, driver 535 / CUDA 12.2):
+#   pip install torch --index-url https://download.pytorch.org/whl/cu121
+# then: pip install -r requirements.txt
+
+torch
+transformers>=4.42.0   # first release with Gemma-2 support
+peft                   # LoRA + prepare_model_for_kbit_training
+accelerate             # Accelerator(mixed_precision="fp16")
+open-clip-torch        # BioCLIP; also pulls in torchvision, timm, huggingface_hub
+Pillow                 # direct import in a_bioclip_VE.py
+matplotlib             # loss-curve PNGs in a_model.py
