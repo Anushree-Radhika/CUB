@@ -1,11 +1,27 @@
-# Install torch FIRST, from a CUDA build that matches your box (V100, driver 535 / CUDA 12.2):
-#   pip install torch --index-url https://download.pytorch.org/whl/cu121
-# then: pip install -r requirements.txt
+# Pinned for: Python 3.10, NVIDIA driver 535 (CUDA 12.2 max), Tesla V100.
+# NOTE: Run PyTorch cu121 installation first before running this file.
 
-torch
-transformers>=4.42.0   # first release with Gemma-2 support
-peft                   # LoRA + prepare_model_for_kbit_training
-accelerate             # Accelerator(mixed_precision="fp16")
-open-clip-torch        # BioCLIP; also pulls in torchvision, timm, huggingface_hub
-Pillow                 # direct import in a_bioclip_VE.py
-matplotlib             # loss-curve PNGs in a_model.py
+# --- core ---
+# Handled by the pre-install step, but kept here for dependency resolution
+torch==2.5.1
+torchvision==0.20.1
+
+# NumPy 1.x is strongly recommended for older timm/open-clip compatibility
+numpy>=1.26.4,<2.0.0
+
+# --- Hugging Face stack ---
+# Allowing pip to resolve the latest patches within the stable minor releases
+transformers>=4.46.0,<5.0.0
+huggingface-hub>=0.25.0
+tokenizers>=0.20.0
+safetensors>=0.4.5
+peft>=0.13.0
+accelerate>=1.0.0
+
+# --- vision encoder (BioCLIP) ---
+open-clip-torch>=2.29.0
+timm>=1.0.11
+
+# --- misc ---
+Pillow>=11.0.0
+matplotlib>=3.9.0
