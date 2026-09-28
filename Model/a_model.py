@@ -1,4 +1,5 @@
 import os
+import glob
 import json
 import random
 import time
@@ -17,20 +18,35 @@ import a_TD
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-IMAGES_ROOT = os.path.expanduser("~/DATASET/CUB_200_2011/images")
+def _find_images_root():
+    """CUB images folder: env override > auto-detect on Kaggle > local server path."""
+    override = os.environ.get("CUB_IMAGES_ROOT")
+    if override:
+        return override
+    if os.path.isdir("/kaggle/input"):
+        hits = glob.glob("/kaggle/input/**/001.Black_footed_Albatross", recursive=True)
+        if hits:
+            return os.path.dirname(hits[0])
+    return os.path.expanduser("~/DATASET/CUB_200_2011/images")
 
-# Kaggle's /kaggle/working doesn't exist on this box — checkpoints and plots
-# save under the user's own home dir instead.
-CHECKPOINT_DIR = os.path.expanduser("~/checkpoints")
+
+IMAGES_ROOT = _find_images_root()
+
+# Checkpoints + loss plots: /kaggle/working on Kaggle, ~/checkpoints elsewhere.
+_default_ckpt_dir = "/kaggle/working" if os.path.isdir("/kaggle/working") else os.path.expanduser("~/checkpoints")
+CHECKPOINT_DIR = os.environ.get("CHECKPOINT_DIR", _default_ckpt_dir)
 CHECKPOINT_PATH = os.path.join(CHECKPOINT_DIR, "model2.pt")
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
+# Decoder checkpoint. 2b fits a 16GB Kaggle GPU; use google/gemma-2-9b on the 32GB V100.
+DECODER_ID = os.environ.get("DECODER_ID", "google/gemma-2-2b")
+
 TEST_JSON = "./test3.json"
 
-BATCH_SIZE = 8
+BATCH_SIZE = int(os.environ.get("BATCH_SIZE", 8))
 LEARNING_RATE = 1e-4
 GRAD_CLIP_NORM = 1.0
-EPOCHS = 8
+EPOCHS = int(os.environ.get("EPOCHS", 8))
 
 # Validation is carved out of train3.json (test3.json stays untouched as the
 # test set). The split is stratified per species and seeded, so a_play.py and
@@ -40,7 +56,7 @@ VAL_FRACTION = 0.1
 SPLIT_SEED = 42
 
 # Set to an int to evaluate on a random subset (faster epochs); None = full set.
-EVAL_MAX_SAMPLES = None
+EVAL_MAX_SAMPLES = int(os.environ["EVAL_MAX_SAMPLES"]) if os.environ.get("EVAL_MAX_SAMPLES") else None
 
 
 class CUBDataset(Dataset):
@@ -197,7 +213,11 @@ class Model(nn.Module):
                 else:
                     loss.backward()
 
-                torch.nn.utils.clip_grad_norm_(self.parameters(), GRAD_CLIP_NORM)
+                # Must unscale first under fp16 grad scaling; accelerator.clip_grad_norm_ does.
+                if accelerator is not None:
+                    accelerator.clip_grad_norm_(self.parameters(), GRAD_CLIP_NORM)
+                else:
+                    torch.nn.utils.clip_grad_norm_(self.parameters(), GRAD_CLIP_NORM)
                 optimizer.step()
                 total_loss += loss.item()
 
