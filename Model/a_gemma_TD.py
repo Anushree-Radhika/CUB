@@ -236,15 +236,18 @@ class GemmaDecoder(nn.Module):
 
         attention_mask = torch.ones(inputs_embeds.shape[:2], dtype=torch.long, device=device)
 
-        output_ids = self.gemma.generate(
+        gen_kwargs = dict(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
             max_new_tokens=MAX_NEW_TOKENS,
             do_sample=GEN_DO_SAMPLE,
-            temperature=GEN_TEMPERATURE,
-            top_p=GEN_TOP_P,
             repetition_penalty=GEN_REPETITION_PENALTY,
             eos_token_id=self.tokenizer.eos_token_id,
+            pad_token_id=self.tokenizer.pad_token_id,
         )
+        if GEN_DO_SAMPLE:  # temperature/top_p are only valid when sampling
+            gen_kwargs.update(temperature=GEN_TEMPERATURE, top_p=GEN_TOP_P)
+
+        output_ids = self.gemma.generate(**gen_kwargs)
 
         return self.tokenizer.batch_decode(output_ids, skip_special_tokens=True)
