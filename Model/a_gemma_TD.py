@@ -1,9 +1,11 @@
+import os
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from peft import LoraConfig, TaskType, get_peft_model, prepare_model_for_kbit_training
+from peft import LoraConfig, TaskType, get_peft_model
 
 
 STEERING_PROMPT = "Describe this bird species correctly."
@@ -19,6 +21,13 @@ GEN_DO_SAMPLE = False
 GEN_TEMPERATURE = 0.0
 GEN_TOP_P = 0.9
 GEN_REPETITION_PENALTY = 1.0
+
+
+# fp16 by default: V100 / T4 / P100 have no native bf16. Gemma was trained in
+# bf16, so if the first-batch loss comes back NaN/inf, rerun with
+# DECODER_DTYPE=fp32 (needs ~4 bytes/param: fine for gemma-2-2b, not for 9b).
+_DTYPES = {"fp16": torch.float16, "fp32": torch.float32, "bf16": torch.bfloat16}
+DECODER_DTYPE = _DTYPES[os.environ.get("DECODER_DTYPE", "fp16")]
 
 
 class GemmaDecoder(nn.Module):
@@ -37,7 +46,7 @@ class GemmaDecoder(nn.Module):
         self.tokenizer = AutoTokenizer.from_pretrained(model)
         self.gemma = AutoModelForCausalLM.from_pretrained(
             model,
-            torch_dtype=torch.float16,  # V100 (Volta) has no bf16 tensor cores; fp16 is the correct choice here
+            torch_dtype=DECODER_DTYPE,
         )
 
         if self.tokenizer.pad_token is None:
@@ -51,12 +60,12 @@ class GemmaDecoder(nn.Module):
         hidden_dim = self.gemma.config.hidden_size
         self.image_projection = nn.Linear(vision_dim, hidden_dim)
 
-        # Despite the name, this isn't just for 4/8-bit models: it upcasts
-        # layer norms + the LM head to fp32 and enables gradient checkpointing,
-        # which is what keeps fp16-weight LoRA training numerically stable on
-        # hardware without bf16 (V100), and the checkpointing buys back VRAM
-        # headroom that matters at 9B on a single 30GB card.
-        self.gemma = prepare_model_for_kbit_training(self.gemma)
+        # Gradient checkpointing keeps activation memory manageable (Gemma's
+        # 256k-token vocab makes the logits large). It only runs in train mode,
+        # so evaluation and generate() are unaffected. Base weights stay in the
+        # dtype they were loaded in; get_peft_model freezes them and keeps the
+        # LoRA adapter weights in fp32, which is what fp16 grad scaling needs.
+        self.gemma.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
 
         lora_config = LoraConfig(
             r=16,
