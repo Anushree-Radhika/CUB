@@ -16,7 +16,7 @@ def train_fn():
 
     model = a_model.Model(
         vision_encoder=a_bioclip_VE.BioCLIP(),
-        text_decoder=a_gemma_TD.GemmaDecoder('google/gemma-2-9b')
+        text_decoder=a_gemma_TD.GemmaDecoder(a_model.DECODER_ID)
     )
 
     # First training pass — starts fresh from Gemma's pretrained weights +
@@ -38,7 +38,7 @@ def run_inference():
 
     model = a_model.Model(
         vision_encoder=a_bioclip_VE.BioCLIP(),
-        text_decoder=a_gemma_TD.GemmaDecoder('google/gemma-2-9b')
+        text_decoder=a_gemma_TD.GemmaDecoder(a_model.DECODER_ID)
     )
     model.load_state_dict(torch.load(a_model.CHECKPOINT_PATH, map_location='cpu'))
     model = model.cuda()
