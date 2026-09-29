@@ -603,15 +603,9 @@ class TraitGenModel(nn.Module):
                 )
             adapter_weights = torch.load(bin_path, map_location=self.device, weights_only=True)
 
-        # Load into model
-        result = self.gemma.load_state_dict(adapter_weights, strict=False)
-        # We expect missing keys (base model weights are not in the adapter file)
-        unexpected = result.unexpected_keys
-        if unexpected:
-            raise RuntimeError(
-                f"Unexpected keys when loading LoRA adapter: {unexpected[:5]}... "
-                "Was this checkpoint created with a different model or LoRA config?"
-            )
+        # Load into model using PEFT's helper to handle .default suffixes
+        from peft import set_peft_model_state_dict
+        set_peft_model_state_dict(self.gemma, adapter_weights)
 
         # Load projector
         projector_path = os.path.join(checkpoint_dir, "projector.pt")
