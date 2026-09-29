@@ -185,8 +185,8 @@ class CocoFormatDataset(Dataset):
             end_idx = len(self.tokenizer.encode(prefix_str + category_name, add_special_tokens=False))
             
             # 3. Mask using a simple slice
-            category_mask = torch.zeros(self.args.max_seq_len, dtype=torch.bool)
-            category_mask[start_idx:end_idx] = True
+            category_mask = torch.zeros(self.args.max_seq_len, dtype=torch.long)
+            category_mask[start_idx:end_idx] = 1.0
             
             target_enc = self.tokenizer(caption, padding="max_length", truncation=True,
                         max_length=self.args.max_seq_len, return_tensors="pt")
