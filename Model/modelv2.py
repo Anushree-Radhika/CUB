@@ -235,8 +235,8 @@ class TraitGen(nn.Module):
         inputs_embeds, attention_mask, labels = self.input2decoder(
             prompt_ids, prompt_mask, prefix_embeds, target_ids, target_mask)
 
-        outputs = self.decoder(inputs_embeds=inputs_embeds, attention_mask=attention_mask, labels=labels)
-        loss = outputs.loss
+        outputs,loss = self.decoder(inputs_embeds=inputs_embeds, attention_mask=attention_mask, labels=labels)
+        # loss = outputs.loss
 
         return loss
 
