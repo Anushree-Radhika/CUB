@@ -239,4 +239,5 @@ class CocoFormatDataset(Dataset):
 
             "caption": sample["caption"],
             "category_name": sample["category_name"],
+            "category_mask": sample["category_mask"].
         }
