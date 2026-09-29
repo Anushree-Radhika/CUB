@@ -68,9 +68,13 @@ class GPT2Decoder(nn.Module):
         inputs_embeds: torch.Tensor,
         attention_mask: torch.Tensor = None,
         labels: torch.Tensor = None,
-        species_mask : torch.Tensor = None,):
+        species_mask : torch.Tensor = None,
+        prompt_mask : torch.Tensor = None,
+        prefix_mask : torch.Tensor = None):
 
         batch_size, text_len = species_mask.shape
+        _,image_len = prefix_mask.shape
+            
         outputs = self.gpt2(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
