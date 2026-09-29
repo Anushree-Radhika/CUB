@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 
 from transformers import (GPT2LMHeadModel,GPT2Tokenizer,)
+import torch.nn.functional as F
 
 from peft import (LoraConfig,TaskType,get_peft_model,)
 MAX_TEXT_LEN = 800
@@ -66,8 +67,10 @@ class GPT2Decoder(nn.Module):
     def forward(self,
         inputs_embeds: torch.Tensor,
         attention_mask: torch.Tensor = None,
-        labels: torch.Tensor = None,):
+        labels: torch.Tensor = None,
+        species_mask : torch.Tensor = None,):
 
+        batch_size, text_len = species_mask.shape
         outputs = self.gpt2(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
@@ -76,14 +79,11 @@ class GPT2Decoder(nn.Module):
 
         logits = outputs.logits
 
-        # calculate species mask
-        
-
-        
-        #shift_logits = logits[:, :-1]
-        #shift_labels = labels[:, 1:]
-        shift_logits = logits[:, :-1, :].contiguous()
-        shift_labels = labels[:, 1:].contiguous()
+        # calculate species mask        
+        shift_logits = logits[:, :-1]
+        shift_labels = labels[:, 1:]
+        #shift_logits = logits[:, :-1, :].contiguous()
+        #shift_labels = labels[:, 1:].contiguous()
         
         image_weights = torch.zeros(
             batch_size,
