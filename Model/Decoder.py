@@ -85,7 +85,7 @@ class GPT2Decoder(nn.Module):
         shift_logits = logits[:, :-1, :].contiguous()
         shift_labels = labels[:, 1:].contiguous()
         
-          image_weights = torch.zeros(
+        image_weights = torch.zeros(
             batch_size,
             image_len,
             device=device,
