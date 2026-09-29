@@ -48,8 +48,9 @@ def train_one_epoch(model, train_loader, optimizer, device, epoch):
         target_ids = batch["target_ids"].to(device)
         target_mask = batch["target_mask"].to(device)
         category = batch["category_name"]  
+        category_mask = batch["category_mask"].to(device)
 
-        loss = model(images, prompt_ids, prompt_mask, target_ids, target_mask)
+        loss = model(images, prompt_ids, prompt_mask, target_ids, target_mask,category_mask)
         
         #with torch.no_grad():
         #    generated_text = raw_model.generate_caption(images, prompt_ids, prompt_mask)
@@ -100,9 +101,11 @@ def validate(args, model, val_loader, device):
         prompt_mask = batch["prompt_mask"].to(device)
         target_ids = batch["target_ids"].to(device)
         target_mask = batch["target_mask"].to(device)
+        category_mask = batch["category_mask"].to(device)
+        
         category = batch["category_name"]
 
-        loss = model(images, prompt_ids, prompt_mask, target_ids, target_mask)
+        loss = model(images, prompt_ids, prompt_mask, target_ids, target_mask,category_mask)
         generated_text = raw_model.generate_caption(images, prompt_ids, prompt_mask)
 
         batch_accuracy = classification_accuracy(generated_text, category)
