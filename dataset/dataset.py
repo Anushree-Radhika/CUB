@@ -176,6 +176,18 @@ class CocoFormatDataset(Dataset):
             caption = (f"It is a species of {category_name} " f"as it has {attributes_for_keypoints}")
             caption += " <|endoftext|>"
 
+            prefix_str = "It is a species of "
+            category_text = category_name
+            suffix_text = f" as it has {attributes_for_keypoints}"
+            
+            # 2. Calculate category start and end token indices
+            start_idx = len(self.tokenizer.encode(prefix_str, add_special_tokens=False))
+            end_idx = len(self.tokenizer.encode(prefix_str + category_name, add_special_tokens=False))
+            
+            # 3. Mask using a simple slice
+            category_mask = torch.zeros(self.args.max_seq_len, dtype=torch.bool)
+            category_mask[start_idx:end_idx] = True
+            
             target_enc = self.tokenizer(caption, padding="max_length", truncation=True,
                         max_length=self.args.max_seq_len, return_tensors="pt")
 
@@ -188,11 +200,12 @@ class CocoFormatDataset(Dataset):
 
                 "prompt_ids": self.prompt_ids,
                 "prompt_mask": self.prompt_mask,
-
+                
                 "target_ids": target_ids,
                 "target_mask": target_mask,
                 "category_name": category_name.strip('"'),
                 "caption": caption,
+                "category_mask":category_mask
             })
 
         return rec
