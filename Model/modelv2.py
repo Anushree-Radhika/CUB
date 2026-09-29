@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from Model.VisionEncoder import VisionEncoder
-from Model.TextDecoder import GPT2Decoder
+from Model.Decoder import GPT2Decoder
 
 import os
 
