@@ -123,7 +123,7 @@ def visualize_and_save_similarity_heatmap_old(original_image_tensor, similarity_
     plt.close(fig)
 
     print(f"[SUCCESS] Heatmap saved without SciPy/OpenCV to: {save_path}")
-"""
+
 def visualize_and_save_similarity_heatmap(original_image_tensor, similarity_matrix, prompt_string, save_path):
     # 1. Input Check: Ensure we have a matching BATCH_SIZE
     if original_image_tensor.size(0) != similarity_matrix.size(0):
@@ -180,7 +180,7 @@ def visualize_and_save_similarity_heatmap(original_image_tensor, similarity_matr
     print(f"[INFO] Successfully generated similarity visualization.")
     print(f"       Prompt used: '{prompt_string}'")
     print(f"       Output saved to: '{save_path}'")
-"""
+
 
 class TraitGen(nn.Module):
     """
@@ -215,10 +215,13 @@ class TraitGen(nn.Module):
 
         prompt_labels = torch.full(prompt_ids.shape, -100, device=device, dtype=torch.long)
         prefix_labels = torch.full((B, PREFIX_LEN), -100, device=device, dtype=torch.long)
+        #print(prompt_ids.shape)
+        #print(PREFIX_LEN)
+        #print(target_mask.shape)
         labels = torch.cat([prompt_labels, prefix_labels, target_ids], dim=1)
 
         prefix_mask = torch.ones((B, PREFIX_LEN), device=device, dtype=torch.long)
-        category_mask = torch.cat([prompt_mask,prefix_mask,cat_mask], dtype=torch.long)
+        category_mask = torch.cat([prompt_mask,prefix_mask,cat_mask],dim=1).to(torch.long)
         full_mask = torch.cat([prompt_mask, prefix_mask, target_mask], dim=1)
         
         return inputs_embeds, full_mask, labels, category_mask
@@ -234,8 +237,15 @@ class TraitGen(nn.Module):
 
         inputs_embeds, attention_mask, labels, cat_mask = self.input2decoder(
             prompt_ids, prompt_mask, prefix_embeds, target_ids, target_mask, category_mask)
+        batch_sz,num_pref_tok,_ = prefix_embeds.shape
 
-        outputs,loss = self.decoder(inputs_embeds=inputs_embeds, attention_mask=attention_mask, labels=labels, category_mask=cat_mask, prompt_mask=prompt_mask,prefix_mask=prefix_mask)
+        prefix_mask = torch.ones((batch_sz,num_pref_tok),dtype=torch.long,device=prefix_embeds.device)
+        outputs,loss = self.decoder(inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask, 
+                labels=labels, 
+                species_mask=category_mask, 
+                prompt_mask=prompt_mask,
+                prefix_mask=prefix_mask)
         # loss = outputs.loss
 
         return loss

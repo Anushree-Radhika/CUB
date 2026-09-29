@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data.distributed import DistributedSampler
 
 from dataset.dataset import CocoFormatDataset
-from Model.model import TraitGen
+from Model.modelv2 import TraitGen
 from Model.VisionEncoder import VisionEncoder
 from engine import *
 
@@ -45,6 +45,7 @@ def get_args_parser():
     parser.add_argument('--ann_dir', default='/kaggle/input/custom-ds', help='Path to custom JSON annotations')
     parser.add_argument('--validate_model',default=0,type=int)
     parser.add_argument('--load_path',default="scratch")
+    parser.add_argument('--drop_parts',default=2,type=int)
     return parser
 
 def main(args):

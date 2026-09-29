@@ -63,6 +63,10 @@ class GPT2Decoder(nn.Module):
 
         self.hidden_dim = self.gpt2.config.n_embd
         self.embedding = self.gpt2.get_input_embeddings()
+    
+    @property
+    def device(self):
+        return next(self.parameters()).device
 
     def forward(self,
         inputs_embeds: torch.Tensor,
@@ -71,10 +75,10 @@ class GPT2Decoder(nn.Module):
         species_mask : torch.Tensor = None,
         prompt_mask : torch.Tensor = None,
         prefix_mask : torch.Tensor = None):
-
+        device = self.device
         batch_size, text_len = species_mask.shape
         _,image_len = prefix_mask.shape
-            
+        _,prompt_len = prompt_mask.shape  
         outputs = self.gpt2(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
@@ -107,7 +111,10 @@ class GPT2Decoder(nn.Module):
             device=device,
         )
 
+        eos_mask = (labels == self.tokenizer.eos_token_id)[:,image_len+prompt_len:,]
         text_weights[species_mask] = SPECIES_TOKEN_WEIGHT
+        
+
         text_weights[eos_mask] = EOS_TOKEN_WEIGHT
 
         weights = torch.cat(
@@ -126,7 +133,10 @@ class GPT2Decoder(nn.Module):
             shift_labels.reshape(-1),
             reduction="none",
         ).view_as(shift_labels)
-
+        #print(image_len,prompt_len,text_len)
+        #print(labels.shape)
+        #print(loss.shape)
+        #print(shift_weights.shape)
         loss = loss * shift_weights
 
         mask = shift_labels != -100

@@ -7,6 +7,7 @@ from pycocotools.coco import COCO
 from transformers import GPT2Tokenizer
 from PIL import Image
 
+import torch
 
 class CocoFormatDataset(Dataset):
     """
@@ -239,5 +240,5 @@ class CocoFormatDataset(Dataset):
 
             "caption": sample["caption"],
             "category_name": sample["category_name"],
-            "category_mask": sample["category_mask"].
+            "category_mask": sample["category_mask"]
         }
