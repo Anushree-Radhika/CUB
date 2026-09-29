@@ -1,4 +1,5 @@
 import os
+import random
 
 from torch.utils.data import Dataset
 from pycocotools.coco import COCO
@@ -29,6 +30,7 @@ class CocoFormatDataset(Dataset):
         self.args = args
         self.img_prefix = img_prefix
         self.preprocess = preprocess
+        self.drop_parts =args.drop_parts
 
         # Update the tokenizer in case of a new decoder model.
         self.tokenizer = GPT2Tokenizer.from_pretrained(args.decoder_model)
@@ -117,6 +119,18 @@ class CocoFormatDataset(Dataset):
             + f" {keypoint}"
         )
 
+    def drop_random_keypoints(self, keypoints_attributes_dict, drop_parts):
+
+        updated_dict = keypoints_attributes_dict.copy()
+        num_drop = min(drop_parts, len(updated_dict))
+
+        if num_drop > 0:
+            drop_keypoints = random.sample(list(updated_dict.keys()),num_drop)
+            for keypoint in drop_keypoints:
+                del updated_dict[keypoint]
+
+        return updated_dict
+
 
     def _load_coco_keypoint_annotation_kernel(self, img_id):
         """
@@ -142,9 +156,13 @@ class CocoFormatDataset(Dataset):
             category_info = self.categories[obj["category_id"]]
             keypoints_attributes_dict = (category_info.get("keypoint_attributes_by_category",{}))
 
+            keypoints_attributes_dict = self.drop_random_keypoints(keypoints_attributes_dict, self.drop_parts)
+
+
             attributes_for_keypoints = []
 
             for keypoint, attributes in (keypoints_attributes_dict.items()):
+
 
                 attributes_for_a_keypoint = (self.get_attributes_for_a_keypoint(keypoint, attributes))
                 attributes_for_keypoints.append(attributes_for_a_keypoint)
