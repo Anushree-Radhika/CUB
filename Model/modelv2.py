@@ -232,10 +232,10 @@ class TraitGen(nn.Module):
         image_features = self.vision_encoder(image).permute(0, 2, 1)
         prefix_embeds = self.bridge(image_features)
 
-        inputs_embeds, attention_mask, labels = self.input2decoder(
-            prompt_ids, prompt_mask, prefix_embeds, target_ids, target_mask)
+        inputs_embeds, attention_mask, labels, cat_mask = self.input2decoder(
+            prompt_ids, prompt_mask, prefix_embeds, target_ids, target_mask, category_mask)
 
-        outputs,loss = self.decoder(inputs_embeds=inputs_embeds, attention_mask=attention_mask, labels=labels)
+        outputs,loss = self.decoder(inputs_embeds=inputs_embeds, attention_mask=attention_mask, labels=labels, category_mask=cat_mask, prompt_mask=prompt_mask,prefix_mask=prefix_mask)
         # loss = outputs.loss
 
         return loss
