@@ -12,6 +12,8 @@ matplotlib.use("Agg")  # headless server: write PNGs, never open a window
 import matplotlib.pyplot as plt
 
 
+
+
 # ---------------------------------------------------------------------------
 # System info banner
 # ---------------------------------------------------------------------------
@@ -29,7 +31,7 @@ def print_system_info(model, cfg):
     print(f"\nDevice:             {model.device}")
     if torch.cuda.is_available():
         print(f"GPU:                {torch.cuda.get_device_name(0)}")
-        mem = torch.cuda.get_device_properties(0).total_mem / 1024**3
+        mem = torch.cuda.get_device_properties(0).total_memory / 1024**3
         print(f"GPU memory:         {mem:.1f} GiB")
     print(f"PyTorch version:    {torch.__version__}")
     print(f"CUDA version:       {torch.version.cuda}")

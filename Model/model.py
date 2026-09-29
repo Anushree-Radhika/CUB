@@ -149,7 +149,7 @@ def _load_gemma_text_decoder(model_id: str, dtype: torch.dtype):
         # Multimodal checkpoint: extract text tower
         from transformers import Gemma3ForCausalLM, Gemma3ForConditionalGeneration
         full = Gemma3ForConditionalGeneration.from_pretrained(
-            model_id, torch_dtype=dtype, low_cpu_mem_usage=True
+            model_id, dtype=dtype, low_cpu_mem_usage=True
         )
         text_cfg = full.config.text_config
         with torch.device("meta"):
@@ -165,7 +165,7 @@ def _load_gemma_text_decoder(model_id: str, dtype: torch.dtype):
 
     if model_type in ("gemma3_text", "gemma2", "gemma"):
         return AutoModelForCausalLM.from_pretrained(
-            model_id, torch_dtype=dtype, low_cpu_mem_usage=True
+            model_id, dtype=dtype, low_cpu_mem_usage=True
         )
 
     raise ValueError(

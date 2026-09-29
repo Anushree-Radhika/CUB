@@ -46,10 +46,12 @@ class CUBDataset(Dataset):
 
     def __getitem__(self, idx):
         item = self.data[idx]
-        image_path = os.path.join(self.image_root, item["imagePath"])
+        # Fix Windows paths (\\) from the JSON to work on Linux (/)
+        rel_path = item["imagePath"].replace("\\", "/")
+        image_path = os.path.join(self.image_root, rel_path)
         return {
             "image_path": image_path,
-            "imagePath": item["imagePath"],  # relative path, for logging
+            "imagePath": rel_path,  # relative path, for logging
             "gt": item["gt"],
         }
 

@@ -36,7 +36,7 @@ def _env_bool(name, default):
 # paths
 # ---------------------------------------------------------------------------
 
-IMAGE_ROOT       = _env("IMAGE_ROOT", "/DATASET/CUB_200_2011/images")
+IMAGE_ROOT       = os.path.expanduser(_env("IMAGE_ROOT", "~/DATASET/CUB_200_2011/images"))
 TRAIN_JSON       = _env("TRAIN_JSON", os.path.join(os.path.dirname(__file__), "train3.json"))
 TEST_JSON        = _env("TEST_JSON",  os.path.join(os.path.dirname(__file__), "test3.json"))
 OUTPUT_DIR       = _env("OUTPUT_DIR", os.path.join(os.path.dirname(__file__), "checkpoints"))
