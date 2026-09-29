@@ -77,8 +77,8 @@ LORA_TARGET_MODULES       = [
 # tokenisation / generation
 # ---------------------------------------------------------------------------
 
-MAX_TEXT_TOKENS            = _env_int("MAX_TEXT_TOKENS", 256)
-MAX_NEW_TOKENS             = _env_int("MAX_NEW_TOKENS", 160)
+MAX_TEXT_TOKENS            = _env_int("MAX_TEXT_TOKENS", 512)
+MAX_NEW_TOKENS             = _env_int("MAX_NEW_TOKENS", 512)
 
 # ---------------------------------------------------------------------------
 # precision & memory
