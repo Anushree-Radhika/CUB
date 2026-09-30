@@ -38,7 +38,7 @@ class CocoFormatDataset(Dataset):
         """
         if(args.decoder_model == "openai-community/gpt2-medium"):
             self.tokenizer = GPT2Tokenizer.from_pretrained(args.decoder_model)
-        elif(args.decoder_model == "Qwen/Qwen3-4B-Base" or args.decoder_model == "Qwen/Qwen3-4B"):
+        elif(args.decoder_model == "Qwen/Qwen3-1.7B-Base" or args.decoder_model == "Qwen/Qwen3-1.7B"):
             self.tokenizer = 
         """
         self.tokenizer = AutoTokenizer.from_pretrained(args.decoder_model)

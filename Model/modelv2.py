@@ -201,7 +201,7 @@ class TraitGen(nn.Module):
         
         if(args.decoder_model == "openai-community/gpt2-medium"):
             self.decoder = GPT2Decoder(args)
-        elif(args.decoder_model == "Qwen/Qwen3-4B-Base" or args.decoder_model == "Qwen/Qwen3-4B"):
+        elif(args.decoder_model == "Qwen/Qwen3-1.7B-Base" or args.decoder_model == "Qwen/Qwen3-1.7B"):
             self.decoder = Qwen3Decoder(args)
         else:
             # fallback to GPT2
@@ -255,7 +255,8 @@ class TraitGen(nn.Module):
         image_len = prefix_embeds.size(1)
         prompt_len = prompt_ids.size(1)
         
-        inputs_embeds = inputs_embeds.to(torch.float16)
+        if(self.args.decoder_model == "Qwen/Qwen3-1.7B-Base"):
+            inputs_embeds = inputs_embeds.to(torch.float16)
         
         outputs,loss = self.decoder(inputs_embeds=inputs_embeds,
                 attention_mask=attention_mask, 
@@ -277,14 +278,18 @@ class TraitGen(nn.Module):
         image_features = self.vision_encoder(image).permute(0, 2, 1)
         prefix_embeds = self.bridge(image_features)
 
-        prompt_embeds = self.decoder.gpt2.get_input_embeddings()(prompt_ids)
+        prompt_embeds = self.decoder.llm.get_input_embeddings()(prompt_ids)
         inputs_embeds = torch.cat([prompt_embeds, prefix_embeds], dim=1)
 
         B, PREFIX_LEN = prompt_ids.size(0), prefix_embeds.size(1)
         prefix_mask = torch.ones((B, PREFIX_LEN), device=prompt_ids.device, dtype=torch.long)
         attention_mask = torch.cat([prompt_mask, prefix_mask], dim=1)
 
-        generated = self.decoder.gpt2.generate(
+        
+        if(self.args.decoder_model == "Qwen/Qwen3-1.7B-Base"):
+            inputs_embeds = inputs_embeds.to(torch.float16)
+            
+        generated = self.decoder.llm.generate(
             inputs_embeds=inputs_embeds, attention_mask=attention_mask,
             max_new_tokens=100, do_sample=True, temperature=0.7, top_p=0.92,
             repetition_penalty=1.2, eos_token_id=self.decoder.tokenizer.eos_token_id,

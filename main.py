@@ -129,14 +129,18 @@ def main(args):
                 logger.info(f"Epoch {epoch}: Train Loss={train_loss:.4f}")
 
                 if epoch == start_epoch + args.epochs - 1:
-                    # val_loss, val_acc = validate(args, model, test_loader, device)
+                    
                     checkpoint_path = os.path.join(args.output_dir, "best_model.pth")
+                    val_loss, val_acc = validate(args, model, test_loader, device)
+                    logger.info(f"Epoch {epoch}: Validation Loss={val_loss:.4f} Validation Accuracy={val_acc:.4f}")
                     # Save model.module to strip the 'module.' wrapper prefix
                     save_checkpoint(checkpoint_path, model.module, optimizer,None,epoch)
-                elif cnter % 5 == 0:
+                elif cnter % 2 == 0:
                     checkpoint_path = os.path.join(args.output_dir, f"best_model_{cnter}.pth")
                     # Save model.module to strip the 'module.' wrapper prefix
                     save_checkpoint(checkpoint_path, model.module, optimizer,None,epoch)
+                    val_loss, val_acc = validate(args, model, test_loader, device)
+                    logger.info(f"Epoch {epoch}: Validation Loss={val_loss:.4f} Validation Accuracy={val_acc:.4f}")
                     
             cnter += 1
 

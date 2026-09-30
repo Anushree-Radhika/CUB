@@ -13,8 +13,8 @@ from torch.utils.data.distributed import DistributedSampler
 
 from dataset.dataset import CocoFormatDataset
 from PIL import Image
-from Model.model import TraitGen
-from Model.VisionEncoder import VisionEncoder
+from Model.modelv2 import TraitGen
+from Model.VisionEncoderPooled import VisionEncoder
 from engine import *
 
 import os

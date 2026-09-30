@@ -20,7 +20,7 @@ GEN_REPETITION_PENALTY = 1.0
 
 class Qwen3Decoder(nn.Module):
     """
-    Qwen3-4B Decoder with LoRA.
+    Qwen3-1.7B Decoder with LoRA.
 
     This module is responsible for:
         - Loading the pretrained Qwen3 language model.
@@ -29,7 +29,7 @@ class Qwen3Decoder(nn.Module):
         - Applying LoRA for parameter-efficient fine-tuning.
         - Producing language model outputs.
 
-    args.decoder_model should be e.g. "Qwen/Qwen3-4B" (or "Qwen/Qwen3-4B-Base").
+    args.decoder_model should be e.g. "Qwen/Qwen3-1.7B" (or "Qwen/Qwen3-1.7B-Base").
     """
 
     def __init__(self, args):
@@ -38,7 +38,7 @@ class Qwen3Decoder(nn.Module):
         self.args = args
 
         # Tesla V100 (compute capability 7.0): no native bf16, no FlashAttention-2.
-        # Use fp16 weights + SDPA attention. Qwen3-4B in fp16 is ~8 GB, which fits
+        # Use fp16 weights + SDPA attention. Qwen3-1.7B in fp16 is ~8 GB, which fits
         # easily on a 32 GB V100 with room for activations, so 4-bit is off by default
         # (set args.load_in_4bit = True only if you need extra headroom).
         load_kwargs = dict(
@@ -99,7 +99,7 @@ class Qwen3Decoder(nn.Module):
             if p.requires_grad:
                 p.data = p.data.float()
 
-        self.hidden_dim = self.llm.config.hidden_size  # 2560 for Qwen3-4B
+        self.hidden_dim = self.llm.config.hidden_size  # 2560 for Qwen3-1.7B
         self.embedding = self.llm.get_input_embeddings()
 
     @property

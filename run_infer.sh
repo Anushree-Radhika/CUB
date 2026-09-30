@@ -1,1 +1,1 @@
-python infer.py --input_image '../CUB_200_2011/images/001.Black_footed_Albatross/Black_Footed_Albatross_0001_796111.jpg' --load_path '../best_model_14.pth'
+python infer.py --input_image '/home/paul/DATASET/CUB_200_2011/images/001.Black_footed_Albatross/Black_Footed_Albatross_0001_796111.jpg' --load_path 'output/best_model.pth' --decoder_model "Qwen/Qwen3-1.7B-Base"
