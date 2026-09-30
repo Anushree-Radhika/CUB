@@ -59,10 +59,10 @@ class GPT2Decoder(nn.Module):
             task_type=TaskType.CAUSAL_LM,
         )
 
-        self.gpt2 = get_peft_model(base_gpt2, peft_config)
+        self.llm = get_peft_model(base_gpt2, peft_config)
 
-        self.hidden_dim = self.gpt2.config.n_embd
-        self.embedding = self.gpt2.get_input_embeddings()
+        self.hidden_dim = self.llm.config.n_embd
+        self.embedding = self.llm.get_input_embeddings()
     
     @property
     def device(self):
@@ -73,13 +73,12 @@ class GPT2Decoder(nn.Module):
         attention_mask: torch.Tensor = None,
         labels: torch.Tensor = None,
         species_mask : torch.Tensor = None,
-        prompt_mask : torch.Tensor = None,
-        prefix_mask : torch.Tensor = None):
+        image_len = 196,
+        prompt_len = 8):
+        
         device = self.device
         batch_size, text_len = species_mask.shape
-        _,image_len = prefix_mask.shape
-        _,prompt_len = prompt_mask.shape  
-        outputs = self.gpt2(
+        outputs = self.llm(
             inputs_embeds=inputs_embeds,
             attention_mask=attention_mask,
             labels=labels,

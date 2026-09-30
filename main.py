@@ -13,7 +13,7 @@ from torch.utils.data.distributed import DistributedSampler
 
 from dataset.dataset import CocoFormatDataset
 from Model.modelv2 import TraitGen
-from Model.VisionEncoder import VisionEncoder
+from Model.VisionEncoderPooled import VisionEncoder
 from engine import *
 
 def setup_ddp():

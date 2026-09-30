@@ -5,6 +5,7 @@ from torch.utils.data import Dataset
 from pycocotools.coco import COCO
 
 from transformers import GPT2Tokenizer
+from transformers import AutoTokenizer
 from PIL import Image
 
 import torch
@@ -34,9 +35,19 @@ class CocoFormatDataset(Dataset):
         self.drop_parts =args.drop_parts
 
         # Update the tokenizer in case of a new decoder model.
-        self.tokenizer = GPT2Tokenizer.from_pretrained(args.decoder_model)
-        self.tokenizer.pad_token = self.tokenizer.eos_token
-
+        """
+        if(args.decoder_model == "openai-community/gpt2-medium"):
+            self.tokenizer = GPT2Tokenizer.from_pretrained(args.decoder_model)
+        elif(args.decoder_model == "Qwen/Qwen3-4B-Base" or args.decoder_model == "Qwen/Qwen3-4B"):
+            self.tokenizer = 
+        """
+        self.tokenizer = AutoTokenizer.from_pretrained(args.decoder_model)
+        
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+        
+        self.tokenizer.padding_side = "right"
+        
         prompt_enc = self.tokenizer(args.streeing_prompt,return_tensors="pt")
         self.prompt_ids = prompt_enc.input_ids.squeeze(0)
         self.prompt_mask = prompt_enc.attention_mask.squeeze(0)
@@ -133,7 +144,7 @@ class CocoFormatDataset(Dataset):
         return updated_dict
 
 
-    def _load_coco_keypoint_annotation_kernel(self, img_id):
+    def _load_coco_keypoint_annotation_kernel2(self, img_id):
         """
         Load annotation metadata.
         """
@@ -174,8 +185,9 @@ class CocoFormatDataset(Dataset):
 
 
             category_name = ('"' + category_info["name"] + '"')
-            caption = (f"It is a species of {category_name} " f"as it has {attributes_for_keypoints}")
-            caption += " <|endoftext|>"
+            eos_token = self.tokenizer.eos_token
+            caption = (f"It is a species of {category_name} " f"as it has {attributes_for_keypoints} {eos_token}")
+            # caption += " <|endoftext|>"
 
             prefix_str = "It is a species of "
             category_text = category_name
@@ -210,7 +222,87 @@ class CocoFormatDataset(Dataset):
             })
 
         return rec
-
+    def _load_coco_keypoint_annotation_kernel(self, img_id):
+        """
+        Load annotation metadata.
+        """
+ 
+        image_file = os.path.join(
+            self.img_prefix,
+            self.id2name[img_id]
+        )
+ 
+        ann_ids = self.coco.getAnnIds(
+            imgIds=img_id,
+            iscrowd=False
+        )
+ 
+        objs = self.coco.loadAnns(ann_ids)
+ 
+        rec = []
+ 
+        for obj in objs:
+ 
+            category_info = self.categories[obj["category_id"]]
+            keypoints_attributes_dict = (category_info.get("keypoint_attributes_by_category",{}))
+ 
+            keypoints_attributes_dict = self.drop_random_keypoints(keypoints_attributes_dict, self.drop_parts)
+ 
+ 
+            attributes_for_keypoints = []
+ 
+            for keypoint, attributes in (keypoints_attributes_dict.items()):
+ 
+ 
+                attributes_for_a_keypoint = (self.get_attributes_for_a_keypoint(keypoint, attributes))
+                attributes_for_keypoints.append(attributes_for_a_keypoint)
+ 
+            attributes_for_keypoints = "; ".join(attributes_for_keypoints)
+ 
+            if attributes_for_keypoints: attributes_for_keypoints += "."
+ 
+ 
+            category_name = ('"' + category_info["name"] + '"')
+            eos_token = self.tokenizer.eos_token
+            caption = (f"It is a species of {category_name} " f"as it has {attributes_for_keypoints} {eos_token}")
+ 
+            prefix_str = "It is a species of "
+ 
+            # Character span of the (quoted) category name inside the caption.
+            span_start = len(prefix_str)
+            span_end = span_start + len(category_name)
+ 
+            target_enc = self.tokenizer(caption, padding="max_length", truncation=True,
+                        max_length=self.args.max_seq_len, return_tensors="pt",
+                        return_offsets_mapping=True)
+ 
+            target_ids = (target_enc.input_ids.squeeze(0))
+            target_mask = (target_enc.attention_mask.squeeze(0))
+ 
+            # Tokenizer-agnostic category mask: a token belongs to the category
+            # if its character offsets overlap the category span. Padding tokens
+            # have offsets (0, 0) and never overlap. This avoids the BPE
+            # boundary problems of counting prefix tokens separately.
+            offsets = target_enc["offset_mapping"].squeeze(0)
+            category_mask = (
+                (offsets[:, 0] < span_end) & (offsets[:, 1] > span_start)
+            ).long()
+ 
+            rec.append({
+ 
+                "image_file": image_file,
+ 
+                "prompt_ids": self.prompt_ids,
+                "prompt_mask": self.prompt_mask,
+                
+                "target_ids": target_ids,
+                "target_mask": target_mask,
+                "category_name": category_name.strip('"'),
+                "caption": caption,
+                "category_mask":category_mask
+            })
+ 
+        return rec
 
     def __len__(self):
         return len(self.db)

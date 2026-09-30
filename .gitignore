@@ -5,3 +5,4 @@ dataset/__pycache__/
 *.jpg
 log.txt
 *.pyc
+output/

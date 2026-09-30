@@ -2,8 +2,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from Model.VisionEncoder import VisionEncoder
+from Model.VisionEncoderPooled import VisionEncoder
 from Model.Decoder import GPT2Decoder
+from Model.Qwen3Decoder import Qwen3Decoder
 
 import os
 
@@ -197,16 +198,26 @@ class TraitGen(nn.Module):
 
         self.args = args
         self.vision_encoder = VisionEncoder(args) if vision_encoder is None else vision_encoder
-        self.decoder = GPT2Decoder(args)
+        
+        if(args.decoder_model == "openai-community/gpt2-medium"):
+            self.decoder = GPT2Decoder(args)
+        elif(args.decoder_model == "Qwen/Qwen3-4B-Base" or args.decoder_model == "Qwen/Qwen3-4B"):
+            self.decoder = Qwen3Decoder(args)
+        else:
+            # fallback to GPT2
+            self.decoder = GPT2Decoder(args)
+            print("Fallback to GPT2 decoder")
+            print("="*80)
+
         self.bridge = Bridge(vision_dim=args.encoder_op_dim, hidden_dim=self.decoder.hidden_dim)
 
     # ============================================================
     # Prepare inputs for GPT-2 training/validation
     # ============================================================
-    def input2decoder(self, prompt_ids, prompt_mask, prefix_embeds, target_ids, target_mask, cat_mask):
+    def input2decoder(self, prompt_ids, prompt_mask, prefix_embeds, target_ids, target_mask):
 
-        prompt_embeds = self.decoder.gpt2.get_input_embeddings()(prompt_ids)
-        target_embeds = self.decoder.gpt2.get_input_embeddings()(target_ids)
+        prompt_embeds = self.decoder.llm.get_input_embeddings()(prompt_ids)
+        target_embeds = self.decoder.llm.get_input_embeddings()(target_ids)
 
         inputs_embeds = torch.cat([prompt_embeds, prefix_embeds, target_embeds], dim=1)
 
@@ -221,10 +232,10 @@ class TraitGen(nn.Module):
         labels = torch.cat([prompt_labels, prefix_labels, target_ids], dim=1)
 
         prefix_mask = torch.ones((B, PREFIX_LEN), device=device, dtype=torch.long)
-        category_mask = torch.cat([prompt_mask,prefix_mask,cat_mask],dim=1).to(torch.long)
+        # category_mask = torch.cat([prompt_mask,prefix_mask,cat_mask],dim=1).to(torch.long)
         full_mask = torch.cat([prompt_mask, prefix_mask, target_mask], dim=1)
         
-        return inputs_embeds, full_mask, labels, category_mask
+        return inputs_embeds, full_mask, labels
 
 
     # ============================================================
@@ -235,17 +246,23 @@ class TraitGen(nn.Module):
         image_features = self.vision_encoder(image).permute(0, 2, 1)
         prefix_embeds = self.bridge(image_features)
 
-        inputs_embeds, attention_mask, labels, cat_mask = self.input2decoder(
-            prompt_ids, prompt_mask, prefix_embeds, target_ids, target_mask, category_mask)
+        inputs_embeds, attention_mask, labels = self.input2decoder(
+            prompt_ids, prompt_mask, prefix_embeds, target_ids, target_mask)
         batch_sz,num_pref_tok,_ = prefix_embeds.shape
 
-        prefix_mask = torch.ones((batch_sz,num_pref_tok),dtype=torch.long,device=prefix_embeds.device)
+        # prefix_mask = torch.ones((batch_sz,num_pref_tok),dtype=torch.long,device=prefix_embeds.device)
+        
+        image_len = prefix_embeds.size(1)
+        prompt_len = prompt_ids.size(1)
+        
+        inputs_embeds = inputs_embeds.to(torch.float16)
+        
         outputs,loss = self.decoder(inputs_embeds=inputs_embeds,
                 attention_mask=attention_mask, 
                 labels=labels, 
                 species_mask=category_mask, 
-                prompt_mask=prompt_mask,
-                prefix_mask=prefix_mask)
+                image_len=image_len,
+                prompt_len=prompt_len)
         # loss = outputs.loss
 
         return loss
