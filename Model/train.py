@@ -130,9 +130,25 @@ def main():
     safety_check_trainable_params(params, cfg.MAX_TRAINABLE_PARAMS)
 
     # ---- Dataset ----
-    train_dataset = CUBDataset(cfg.TRAIN_JSON, cfg.IMAGE_ROOT)
+    full_train_dataset = CUBDataset(cfg.TRAIN_JSON, cfg.IMAGE_ROOT)
+    
+    if hasattr(cfg, 'VAL_JSON') and cfg.VAL_JSON and os.path.exists(cfg.VAL_JSON):
+        train_dataset = full_train_dataset
+        val_dataset = CUBDataset(cfg.VAL_JSON, cfg.IMAGE_ROOT)
+        print("Using provided VAL_JSON for validation.")
+    else:
+        val_split = getattr(cfg, 'VAL_SPLIT', 0.1)
+        val_size = int(len(full_train_dataset) * val_split)
+        train_size = len(full_train_dataset) - val_size
+        train_dataset, val_dataset = torch.utils.data.random_split(
+            full_train_dataset, [train_size, val_size],
+            generator=torch.Generator().manual_seed(cfg.SEED)
+        )
+        print(f"Split train dataset into {train_size} train and {val_size} val samples.")
+
     test_dataset = CUBDataset(cfg.TEST_JSON, cfg.IMAGE_ROOT)
     print(f"Train samples: {len(train_dataset)}")
+    print(f"Val samples:   {len(val_dataset)}")
     print(f"Test samples:  {len(test_dataset)}")
 
     train_loader = DataLoader(
@@ -142,6 +158,14 @@ def main():
         collate_fn=collate_fn,
         drop_last=False,
         num_workers=0,   # image loading is done inside the model (BioCLIP preprocess)
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=cfg.BATCH_SIZE,
+        shuffle=False,
+        collate_fn=collate_fn,
+        drop_last=False,
+        num_workers=0,
     )
     test_loader = DataLoader(
         test_dataset,
@@ -187,7 +211,7 @@ def main():
     # ---- Resume ----
     start_epoch = 0
     global_step = 0
-    loss_history = {"epochs": [], "train_loss": [], "test_loss": []}
+    loss_history = {"epochs": [], "train_loss": [], "val_loss": [], "test_loss": []}
 
     if args.resume:
         if not os.path.isdir(args.resume):
@@ -288,19 +312,27 @@ def main():
         train_loss = running_loss / max(running_tokens, 1)
         epoch_time = time.time() - epoch_start
 
+        # ---- Val loss ----
+        print(f"\n  Computing val loss ...", flush=True)
+        val_loss = evaluate_test_loss(model, val_loader)
+
         # ---- Test loss ----
-        print(f"\n  Computing test loss ...", flush=True)
+        print(f"  Computing test loss ...", flush=True)
         test_loss = evaluate_test_loss(model, test_loader)
 
         # ---- Record ----
         loss_history["epochs"].append(epoch_num)
         loss_history["train_loss"].append(train_loss)
+        if "val_loss" not in loss_history:
+            loss_history["val_loss"] = []
+        loss_history["val_loss"].append(val_loss)
         loss_history["test_loss"].append(test_loss)
 
         # ---- Epoch summary ----
         print(f"\n{'=' * 50}")
         print(f"  Epoch {epoch_num}/{cfg.EPOCHS}")
         print(f"  Train Loss: {train_loss:.4f}")
+        print(f"  Val Loss:   {val_loss:.4f}")
         print(f"  Test Loss:  {test_loss:.4f}")
         print(f"  Time:       {format_time(epoch_time)}")
         print(f"{'=' * 50}")
@@ -371,6 +403,8 @@ def main():
     print(f"  Training complete!")
     print(f"  Epochs:         {cfg.EPOCHS}")
     print(f"  Final train:    {loss_history['train_loss'][-1]:.4f}")
+    if loss_history.get('val_loss'):
+        print(f"  Final val:      {loss_history['val_loss'][-1]:.4f}")
     print(f"  Final test:     {loss_history['test_loss'][-1]:.4f}")
     print(f"  Checkpoints:    {cfg.OUTPUT_DIR}")
     print(f"  Loss plot:      {os.path.join(cfg.OUTPUT_DIR, 'train_vs_test_loss.png')}")

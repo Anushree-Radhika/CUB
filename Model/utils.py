@@ -127,11 +127,17 @@ def save_loss_history(history, output_dir):
 
     # CSV
     csv_path = os.path.join(output_dir, "loss_history.csv")
+    val_exists = "val_loss" in history and len(history["val_loss"]) == len(history["epochs"])
     with open(csv_path, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["epoch", "train_loss", "test_loss"])
-        for e, tl, vl in zip(history["epochs"], history["train_loss"], history["test_loss"]):
-            writer.writerow([e, f"{tl:.6f}", f"{vl:.6f}"])
+        if val_exists:
+            writer.writerow(["epoch", "train_loss", "val_loss", "test_loss"])
+            for e, tl, vl, tsl in zip(history["epochs"], history["train_loss"], history["val_loss"], history["test_loss"]):
+                writer.writerow([e, f"{tl:.6f}", f"{vl:.6f}", f"{tsl:.6f}"])
+        else:
+            writer.writerow(["epoch", "train_loss", "test_loss"])
+            for e, tl, tsl in zip(history["epochs"], history["train_loss"], history["test_loss"]):
+                writer.writerow([e, f"{tl:.6f}", f"{tsl:.6f}"])
 
     # JSON
     json_path = os.path.join(output_dir, "loss_history.json")
@@ -142,10 +148,12 @@ def save_loss_history(history, output_dir):
     png_path = os.path.join(output_dir, "train_vs_test_loss.png")
     plt.figure(figsize=(8, 5))
     plt.plot(history["epochs"], history["train_loss"], "o-", label="Training Loss", color="#2563eb")
+    if val_exists:
+        plt.plot(history["epochs"], history["val_loss"], "^-", label="Validation Loss", color="#10b981")
     plt.plot(history["epochs"], history["test_loss"], "s-", label="Test Loss", color="#dc2626")
     plt.xlabel("Epoch", fontsize=12)
     plt.ylabel("Loss", fontsize=12)
-    plt.title("Training vs Test Loss", fontsize=14)
+    plt.title("Training vs Validation/Test Loss", fontsize=14)
     plt.legend(fontsize=11)
     plt.grid(alpha=0.3)
     plt.tight_layout()
@@ -160,8 +168,11 @@ def load_loss_history(output_dir):
     json_path = os.path.join(output_dir, "loss_history.json")
     if os.path.exists(json_path):
         with open(json_path, "r") as f:
-            return json.load(f)
-    return {"epochs": [], "train_loss": [], "test_loss": []}
+            history = json.load(f)
+            if "val_loss" not in history:
+                history["val_loss"] = []
+            return history
+    return {"epochs": [], "train_loss": [], "val_loss": [], "test_loss": []}
 
 
 # ---------------------------------------------------------------------------

@@ -38,6 +38,8 @@ def _env_bool(name, default):
 
 IMAGE_ROOT       = os.path.expanduser(_env("IMAGE_ROOT", "~/DATASET/CUB_200_2011/images"))
 TRAIN_JSON       = _env("TRAIN_JSON", os.path.join(os.path.dirname(__file__), "train.json"))
+VAL_JSON         = _env("VAL_JSON", "")
+VAL_SPLIT        = _env_float("VAL_SPLIT", 0.1)
 TEST_JSON        = _env("TEST_JSON",  os.path.join(os.path.dirname(__file__), "test.json"))
 OUTPUT_DIR       = _env("OUTPUT_DIR", os.path.join(os.path.dirname(__file__), "checkpoints"))
 
@@ -77,8 +79,8 @@ LORA_TARGET_MODULES       = [
 # tokenisation / generation
 # ---------------------------------------------------------------------------
 
-MAX_TEXT_TOKENS            = _env_int("MAX_TEXT_TOKENS", 512)
-MAX_NEW_TOKENS             = _env_int("MAX_NEW_TOKENS", 512)
+MAX_TEXT_TOKENS            = _env_int("MAX_TEXT_TOKENS", 300)
+MAX_NEW_TOKENS             = _env_int("MAX_NEW_TOKENS", 330)
 
 # ---------------------------------------------------------------------------
 # precision & memory
