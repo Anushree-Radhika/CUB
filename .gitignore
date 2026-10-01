@@ -6,3 +6,5 @@ dataset/__pycache__/
 log.txt
 *.pyc
 output/
+complete_session_output.txt
+tmux-hist.txt

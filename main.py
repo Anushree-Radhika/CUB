@@ -112,35 +112,36 @@ def main(args):
             start_epoch = load_checkpoint(model_state_path,model,None,None)
             start_epoch += 1
         
-        model = DDP(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=False)
+        model = DDP(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True)
         optimizer = torch.optim.AdamW(
             filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr
         )    
-
+        
+        scaler = torch.cuda.amp.GradScaler()
+        
         cnter = 1
         for epoch in range(start_epoch,start_epoch + args.epochs):
             # Set epoch for sampler to ensure proper shuffling across GPUs
             train_sampler.set_epoch(epoch)
 
-            train_loss = train_one_epoch(model, train_loader, optimizer, device, epoch)
+            train_loss = train_one_epoch(model, train_loader, optimizer, device, epoch,scaler=scaler)
 
             # Log and save checkpoints only from rank 0
             if global_rank == 0:
                 logger.info(f"Epoch {epoch}: Train Loss={train_loss:.4f}")
 
                 if epoch == start_epoch + args.epochs - 1:
-                    
-                    checkpoint_path = os.path.join(args.output_dir, "best_model.pth")
-                    val_loss, val_acc = validate(args, model, test_loader, device)
-                    logger.info(f"Epoch {epoch}: Validation Loss={val_loss:.4f} Validation Accuracy={val_acc:.4f}")
                     # Save model.module to strip the 'module.' wrapper prefix
+                    checkpoint_path = os.path.join(args.output_dir, "best_model.pth")
                     save_checkpoint(checkpoint_path, model.module, optimizer,None,epoch)
                 elif cnter % 2 == 0:
-                    checkpoint_path = os.path.join(args.output_dir, f"best_model_{cnter}.pth")
+                    checkpoint_path = os.path.join(args.output_dir, f"best_model_{epoch}.pth")
                     # Save model.module to strip the 'module.' wrapper prefix
                     save_checkpoint(checkpoint_path, model.module, optimizer,None,epoch)
-                    val_loss, val_acc = validate(args, model, test_loader, device)
-                    logger.info(f"Epoch {epoch}: Validation Loss={val_loss:.4f} Validation Accuracy={val_acc:.4f}")
+            
+            val_loss, val_acc = validate(args, model, test_loader, device)
+            if global_rank == 0:
+                logger.info(f"Epoch {epoch}: Validation Loss={val_loss:.4f} Validation Accuracy={val_acc:.4f}")
                     
             cnter += 1
 
