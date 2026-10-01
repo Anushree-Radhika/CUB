@@ -47,6 +47,7 @@ OUTPUT_DIR       = _env("OUTPUT_DIR", os.path.join(os.path.dirname(__file__), "c
 # model identifiers
 # ---------------------------------------------------------------------------
 
+# Fall back to google/gemma-3-1b-pt if the GPU is shared / you hit OOM.
 GEMMA_MODEL      = _env("GEMMA_MODEL",  "google/gemma-3-4b-pt")
 BIOCLIP_MODEL    = _env("BIOCLIP_MODEL", "hf-hub:imageomics/bioclip")
 
@@ -55,8 +56,8 @@ BIOCLIP_MODEL    = _env("BIOCLIP_MODEL", "hf-hub:imageomics/bioclip")
 # ---------------------------------------------------------------------------
 
 EPOCHS                    = _env_int("EPOCHS", 15)
-BATCH_SIZE                = _env_int("BATCH_SIZE", 4)
-GRADIENT_ACCUMULATION     = _env_int("GRADIENT_ACCUMULATION_STEPS", 1)
+BATCH_SIZE                = _env_int("BATCH_SIZE", 2)                    # effective batch = 2 x 2 = 4
+GRADIENT_ACCUMULATION     = _env_int("GRADIENT_ACCUMULATION_STEPS", 2)
 
 LEARNING_RATE             = _env_float("LEARNING_RATE", 2e-4)
 WEIGHT_DECAY              = _env_float("WEIGHT_DECAY", 0.01)
@@ -79,20 +80,22 @@ LORA_TARGET_MODULES       = [
 # tokenisation / generation
 # ---------------------------------------------------------------------------
 
+# Captions end with the species sentence, so truncation would remove the most
+# important part. Keep this above the longest caption (check with the Gemma
+# tokenizer), and keep MAX_NEW_TOKENS >= MAX_TEXT_TOKENS.
 MAX_TEXT_TOKENS            = _env_int("MAX_TEXT_TOKENS", 300)
-MAX_NEW_TOKENS             = _env_int("MAX_NEW_TOKENS", 330)
+MAX_NEW_TOKENS             = _env_int("MAX_NEW_TOKENS", 300)
 
 # ---------------------------------------------------------------------------
 # precision & memory
 # ---------------------------------------------------------------------------
 
-# Gemma 3 overflows FP16 activations. V100 has no native BF16 tensor cores.
-# Default is FP32 for model weights. AMP with FP16 is used only for the
-# forward/backward pass via torch.cuda.amp (autocast), NOT for storing
-# the model weights themselves.
+# Gemma 3 overflows FP16 activations and V100 has no native BF16, so model
+# weights are FP32. Leave USE_AMP off on V100: FP16 autocast reintroduces the
+# overflow even with FP32 weights.
 DTYPE                     = _env("DTYPE", "fp32")
 GRADIENT_CHECKPOINTING    = _env_bool("GRADIENT_CHECKPOINTING", True)
-USE_AMP                   = _env_bool("USE_AMP", False)   # FP16 AMP — disabled by default for V100+Gemma3 safety
+USE_AMP                   = _env_bool("USE_AMP", False)
 
 # ---------------------------------------------------------------------------
 # reproducibility
@@ -116,8 +119,7 @@ STEERING_PROMPT = "Describe the visible attributes of this bird."
 # safety
 # ---------------------------------------------------------------------------
 
-# If the trainable parameter count exceeds this, training is aborted.
-# Gemma 3 4B has ~4 billion parameters; LoRA + projector should be < 100M.
+# LoRA (r=16, all 7 projections) + projector on Gemma 3 4B is ~40M params.
 MAX_TRAINABLE_PARAMS      = _env_int("MAX_TRAINABLE_PARAMS", 500_000_000)
 
 # ---------------------------------------------------------------------------

@@ -8,21 +8,18 @@ Usage
     CUDA_VISIBLE_DEVICES=0 python train.py --resume checkpoints/epoch_07
 
 All hyper-parameters are read from config.py (which reads environment variables).
-See config.py for the full list of settings.
 
-IMPORTANT — test-set caveat
-----------------------------
+IMPORTANT - test-set caveat
+---------------------------
 Because the test loss is monitored after every epoch and a random test image is
 used for qualitative generation, the test set is no longer a completely untouched
 hold-out.  If a truly unseen evaluation is needed, reserve a separate set.
 """
 
 import argparse
-import json
 import math
 import os
 import random
-import sys
 import time
 import torch
 from torch.utils.data import DataLoader
@@ -34,43 +31,54 @@ from utils import (
     print_system_info,
     safety_check_trainable_params,
     save_loss_history,
-    load_loss_history,
     save_epoch_generation,
     save_final_generations,
     format_time,
 )
 
 
+def _sample_path(sample):
+    """The dataset may expose the path as 'image_path' or 'imagePath'."""
+    p = sample.get("image_path") or sample.get("imagePath")
+    if p is None:
+        raise KeyError("Dataset sample has neither 'image_path' nor 'imagePath'.")
+    return p
+
+
+def _set_train(model):
+    model.gemma.train()
+    model.projector.train()
+    model.vision_encoder.eval()   # always frozen + eval
+
+
+def _set_eval(model):
+    model.gemma.eval()
+    model.projector.eval()
+    model.vision_encoder.eval()
+
+
 # ---------------------------------------------------------------------------
-# Test-loss evaluation
+# Loss evaluation (used for both val and test)
 # ---------------------------------------------------------------------------
 
 @torch.no_grad()
-def evaluate_test_loss(model, test_loader):
-    """
-    Compute average causal-LM loss over the entire test set.
-
-    Model is set to eval mode, then restored to train mode.
-    No gradients are computed.
-    """
-    model.gemma.eval()
-    model.projector.eval()
-
-    total_loss = 0.0
-    total_tokens = 0
-
-    for batch in test_loader:
-        loss, n_tokens = model.forward_loss_components(
-            batch["image_paths"], batch["captions"]
-        )
-        total_loss += loss.item() * n_tokens
-        total_tokens += n_tokens
-
-    model.gemma.train()
-    model.projector.train()
+def evaluate_loss(model, loader):
+    """Token-weighted average causal-LM loss over a loader."""
+    _set_eval(model)
+    try:
+        total_loss = 0.0
+        total_tokens = 0
+        for batch in loader:
+            loss, n_tokens = model.forward_loss_components(
+                batch["image_paths"], batch["captions"]
+            )
+            total_loss += loss.item() * n_tokens
+            total_tokens += n_tokens
+    finally:
+        _set_train(model)
 
     if total_tokens == 0:
-        raise RuntimeError("Test set produced 0 tokens — check data.")
+        raise RuntimeError("Loader produced 0 tokens - check data.")
     return total_loss / total_tokens
 
 
@@ -79,21 +87,20 @@ def evaluate_test_loss(model, test_loader):
 # ---------------------------------------------------------------------------
 
 @torch.no_grad()
-def generate_random_test_sample(model, test_dataset, rng):
+def generate_one(model, test_dataset, rng):
     """Pick a random test image, generate a description, return the record."""
     idx = rng.randint(0, len(test_dataset) - 1)
     sample = test_dataset[idx]
+    path = _sample_path(sample)
 
-    model.gemma.eval()
-    model.projector.eval()
-
-    generated = model.generate([sample["image_path"]])[0].strip()
-
-    model.gemma.train()
-    model.projector.train()
+    _set_eval(model)
+    try:
+        generated = model.generate([path])[0].strip()
+    finally:
+        _set_train(model)
 
     return {
-        "imagePath": sample["imagePath"],
+        "imagePath": path,
         "ground_truth": sample["gt"].strip(),
         "generated": generated,
     }
@@ -110,11 +117,9 @@ def main():
                              "(e.g. checkpoints/epoch_07)")
     args = parser.parse_args()
 
-    # ---- Reproducibility ----
     torch.manual_seed(cfg.SEED)
     random.seed(cfg.SEED)
 
-    # ---- Device ----
     if not torch.cuda.is_available():
         print("WARNING: CUDA not available, running on CPU (this will be very slow)")
         device = "cpu"
@@ -122,27 +127,24 @@ def main():
         device = "cuda"
         print(f"Using GPU: {torch.cuda.get_device_name(0)}")
 
-    # ---- Build model ----
+    # ---- Model ----
     model = TraitGenModel(device=device)
-
-    # ---- Print system info & safety check ----
     params = print_system_info(model, cfg)
     safety_check_trainable_params(params, cfg.MAX_TRAINABLE_PARAMS)
 
-    # ---- Dataset ----
+    # ---- Data ----
     full_train_dataset = CUBDataset(cfg.TRAIN_JSON, cfg.IMAGE_ROOT)
-    
-    if hasattr(cfg, 'VAL_JSON') and cfg.VAL_JSON and os.path.exists(cfg.VAL_JSON):
+
+    if getattr(cfg, "VAL_JSON", "") and os.path.exists(cfg.VAL_JSON):
         train_dataset = full_train_dataset
         val_dataset = CUBDataset(cfg.VAL_JSON, cfg.IMAGE_ROOT)
         print("Using provided VAL_JSON for validation.")
     else:
-        val_split = getattr(cfg, 'VAL_SPLIT', 0.1)
-        val_size = int(len(full_train_dataset) * val_split)
+        val_size = int(len(full_train_dataset) * getattr(cfg, "VAL_SPLIT", 0.1))
         train_size = len(full_train_dataset) - val_size
         train_dataset, val_dataset = torch.utils.data.random_split(
             full_train_dataset, [train_size, val_size],
-            generator=torch.Generator().manual_seed(cfg.SEED)
+            generator=torch.Generator().manual_seed(cfg.SEED),
         )
         print(f"Split train dataset into {train_size} train and {val_size} val samples.")
 
@@ -151,37 +153,21 @@ def main():
     print(f"Val samples:   {len(val_dataset)}")
     print(f"Test samples:  {len(test_dataset)}")
 
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=cfg.BATCH_SIZE,
-        shuffle=True,
-        collate_fn=collate_fn,
-        drop_last=False,
-        num_workers=0,   # image loading is done inside the model (BioCLIP preprocess)
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=cfg.BATCH_SIZE,
-        shuffle=False,
-        collate_fn=collate_fn,
-        drop_last=False,
-        num_workers=0,
-    )
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=cfg.BATCH_SIZE,
-        shuffle=False,
-        collate_fn=collate_fn,
-        drop_last=False,
-        num_workers=0,
-    )
+    def make_loader(ds, shuffle):
+        return DataLoader(
+            ds, batch_size=cfg.BATCH_SIZE, shuffle=shuffle,
+            collate_fn=collate_fn, drop_last=False,
+            num_workers=0,   # image loading happens inside the model (BioCLIP preprocess)
+        )
+
+    train_loader = make_loader(train_dataset, True)
+    val_loader = make_loader(val_dataset, False)
+    test_loader = make_loader(test_dataset, False)
 
     # ---- Optimizer ----
     trainable_params = list(model.trainable_parameters())
     optimizer = torch.optim.AdamW(
-        trainable_params,
-        lr=cfg.LEARNING_RATE,
-        weight_decay=cfg.WEIGHT_DECAY,
+        trainable_params, lr=cfg.LEARNING_RATE, weight_decay=cfg.WEIGHT_DECAY,
     )
 
     # ---- Scheduler (linear warmup + cosine decay) ----
@@ -201,11 +187,10 @@ def main():
     scaler = None
     if cfg.USE_AMP and device == "cuda":
         scaler = torch.amp.GradScaler("cuda")
-        print("AMP (FP16) enabled")
+        print("AMP (FP16 autocast) enabled - watch for non-finite loss with Gemma 3")
     else:
         print(f"AMP disabled (USE_AMP={cfg.USE_AMP})")
 
-    # ---- Output directory ----
     os.makedirs(cfg.OUTPUT_DIR, exist_ok=True)
 
     # ---- Resume ----
@@ -224,60 +209,65 @@ def main():
         global_step = state["global_step"]
         if state.get("loss_history"):
             loss_history = state["loss_history"]
+        for k in ("epochs", "train_loss", "val_loss", "test_loss"):
+            loss_history.setdefault(k, [])
         print(f"  Resuming training from epoch {start_epoch + 1}\n")
 
-    # ---- RNG for random test samples (changes each epoch) ----
-    sample_rng = random.Random(cfg.SEED + 1000)
+    sample_rng = random.Random(cfg.SEED + 1000 + start_epoch)
 
-    # ---- Training loop ----
     print(f"\nStarting training: {cfg.EPOCHS} epochs, "
           f"{len(train_loader)} batches/epoch, "
           f"grad_accum={cfg.GRADIENT_ACCUMULATION}\n")
 
-    model.vision_encoder.eval()   # always frozen + eval
-    model.gemma.train()
-    model.projector.train()
+    _set_train(model)
 
     for epoch in range(start_epoch, cfg.EPOCHS):
         epoch_num = epoch + 1
         epoch_start = time.time()
 
         running_loss = 0.0
-        running_tokens = 0
+        running_batches = 0
         optimizer.zero_grad(set_to_none=True)
         step_in_epoch = 0
 
         for batch_idx, batch in enumerate(train_loader):
-            # Forward
             if scaler is not None:
                 with torch.amp.autocast("cuda", dtype=torch.float16):
                     loss = model(batch["image_paths"], batch["captions"])
-                loss = loss / cfg.GRADIENT_ACCUMULATION
-                scaler.scale(loss).backward()
             else:
                 loss = model(batch["image_paths"], batch["captions"])
-                loss = loss / cfg.GRADIENT_ACCUMULATION
-                loss.backward()
 
-            running_loss += loss.item() * cfg.GRADIENT_ACCUMULATION
-            running_tokens += 1
-
-            # Check for NaN
-            if not math.isfinite(loss.item()):
+            loss_value = loss.item()
+            if not math.isfinite(loss_value):
                 raise RuntimeError(
                     f"NaN/Inf loss at epoch {epoch_num}, batch {batch_idx}. "
                     "Check data, learning rate, or precision settings."
                 )
 
-            # Optimizer step every GRADIENT_ACCUMULATION batches
-            if (batch_idx + 1) % cfg.GRADIENT_ACCUMULATION == 0 or (batch_idx + 1) == len(train_loader):
+            scaled = loss / cfg.GRADIENT_ACCUMULATION
+            if scaler is not None:
+                scaler.scale(scaled).backward()
+            else:
+                scaled.backward()
+
+            running_loss += loss_value
+            running_batches += 1
+
+            is_last = (batch_idx + 1) == len(train_loader)
+            if (batch_idx + 1) % cfg.GRADIENT_ACCUMULATION == 0 or is_last:
                 if scaler is not None:
                     scaler.unscale_(optimizer)
-                    grad_norm = torch.nn.utils.clip_grad_norm_(trainable_params, cfg.GRAD_CLIP_NORM)
+                grad_norm = torch.nn.utils.clip_grad_norm_(trainable_params, cfg.GRAD_CLIP_NORM)
+
+                if not torch.isfinite(grad_norm):
+                    raise RuntimeError(
+                        f"Non-finite gradient norm at epoch {epoch_num}, step {global_step + 1}."
+                    )
+
+                if scaler is not None:
                     scaler.step(optimizer)
                     scaler.update()
                 else:
-                    grad_norm = torch.nn.utils.clip_grad_norm_(trainable_params, cfg.GRAD_CLIP_NORM)
                     optimizer.step()
 
                 scheduler.step()
@@ -285,15 +275,8 @@ def main():
                 global_step += 1
                 step_in_epoch += 1
 
-                # Check gradient norm
-                if not torch.isfinite(grad_norm):
-                    raise RuntimeError(
-                        f"Non-finite gradient norm at epoch {epoch_num}, step {global_step}."
-                    )
-
-                # Logging
                 if global_step % cfg.LOG_EVERY_STEPS == 0:
-                    avg_loss = running_loss / running_tokens
+                    avg_loss = running_loss / running_batches
                     lr = scheduler.get_last_lr()[0]
                     elapsed = time.time() - epoch_start
                     mem = torch.cuda.max_memory_allocated() / 1024**3 if device == "cuda" else 0
@@ -303,32 +286,26 @@ def main():
                         f"Global {global_step}/{total_steps} | "
                         f"Loss {avg_loss:.4f} | "
                         f"LR {lr:.2e} | "
-                        f"Grad {grad_norm:.3f} | "
+                        f"Grad {float(grad_norm):.3f} | "
                         f"Mem {mem:.1f}G | "
                         f"{format_time(elapsed)}",
                         flush=True,
                     )
 
-        train_loss = running_loss / max(running_tokens, 1)
+        train_loss = running_loss / max(running_batches, 1)
         epoch_time = time.time() - epoch_start
 
-        # ---- Val loss ----
-        print(f"\n  Computing val loss ...", flush=True)
-        val_loss = evaluate_test_loss(model, val_loader)
+        # ---- Val / test loss ----
+        print("\n  Computing val loss ...", flush=True)
+        val_loss = evaluate_loss(model, val_loader)
+        print("  Computing test loss ...", flush=True)
+        test_loss = evaluate_loss(model, test_loader)
 
-        # ---- Test loss ----
-        print(f"  Computing test loss ...", flush=True)
-        test_loss = evaluate_test_loss(model, test_loader)
-
-        # ---- Record ----
         loss_history["epochs"].append(epoch_num)
         loss_history["train_loss"].append(train_loss)
-        if "val_loss" not in loss_history:
-            loss_history["val_loss"] = []
         loss_history["val_loss"].append(val_loss)
         loss_history["test_loss"].append(test_loss)
 
-        # ---- Epoch summary ----
         print(f"\n{'=' * 50}")
         print(f"  Epoch {epoch_num}/{cfg.EPOCHS}")
         print(f"  Train Loss: {train_loss:.4f}")
@@ -337,74 +314,54 @@ def main():
         print(f"  Time:       {format_time(epoch_time)}")
         print(f"{'=' * 50}")
 
-        # ---- Save checkpoint ----
+        # ---- Checkpoint + plots ----
         ckpt_dir = os.path.join(cfg.OUTPUT_DIR, f"epoch_{epoch_num:02d}")
         model.save_checkpoint(
             ckpt_dir, epoch_num, global_step,
             optimizer, scheduler, scaler, loss_history,
         )
-
-        # ---- Update loss plot ----
-        csv_path, json_path, png_path = save_loss_history(loss_history, cfg.OUTPUT_DIR)
+        _, _, png_path = save_loss_history(loss_history, cfg.OUTPUT_DIR)
         print(f"  Loss curves: {png_path}")
 
         # ---- Random test generation ----
-        print(f"\n  Generating random test sample ...", flush=True)
-        gen = generate_random_test_sample(model, test_dataset, sample_rng)
+        print("\n  Generating random test sample ...", flush=True)
+        gen = generate_one(model, test_dataset, sample_rng)
         save_epoch_generation(cfg.OUTPUT_DIR, epoch_num, gen["imagePath"],
                               gen["ground_truth"], gen["generated"])
 
         print(f"\n{'=' * 40}")
         print(f"  Epoch {epoch_num}")
         print(f"{'=' * 40}")
-        print(f"\n  Random test image:")
-        print(f"  {gen['imagePath']}")
-        print(f"\n  Ground Truth:")
-        print(f"  {gen['ground_truth']}")
-        print(f"\n  Generated:")
-        print(f"  {gen['generated']}")
+        print(f"\n  Random test image:\n  {gen['imagePath']}")
+        print(f"\n  Ground Truth:\n  {gen['ground_truth']}")
+        print(f"\n  Generated:\n  {gen['generated']}")
         print(f"{'=' * 40}\n")
 
-        # Ensure train mode for next epoch
-        model.gemma.train()
-        model.projector.train()
-
-    # ---- Final generation (10 random test images) ----
+    # ---- Final generation ----
     print(f"\nFinal generation: {cfg.FINAL_GENERATION_SAMPLES} random test images ...\n")
     final_rng = random.Random(cfg.SEED + 9999)
     final_generations = []
 
-    model.gemma.eval()
-    model.projector.eval()
-
     for i in range(cfg.FINAL_GENERATION_SAMPLES):
-        idx = final_rng.randint(0, len(test_dataset) - 1)
-        sample = test_dataset[idx]
-
-        with torch.no_grad():
-            generated = model.generate([sample["image_path"]])[0].strip()
-
+        gen = generate_one(model, test_dataset, final_rng)
         record = {
-            "imagePath": sample["imagePath"],
-            "ground_truth": sample["gt"].strip(),
-            "generated_text": generated,
+            "imagePath": gen["imagePath"],
+            "ground_truth": gen["ground_truth"],
+            "generated_text": gen["generated"],
         }
         final_generations.append(record)
 
-        print(f"  [{i+1}/{cfg.FINAL_GENERATION_SAMPLES}] {sample['imagePath']}")
+        print(f"  [{i + 1}/{cfg.FINAL_GENERATION_SAMPLES}] {record['imagePath']}")
         print(f"    GT:  {record['ground_truth'][:120]}...")
-        print(f"    Gen: {record['generated_text'][:120]}...")
-        print()
+        print(f"    Gen: {record['generated_text'][:120]}...\n")
 
     save_final_generations(cfg.OUTPUT_DIR, final_generations)
 
-    # ---- Done ----
     print(f"\n{'=' * 60}")
-    print(f"  Training complete!")
+    print("  Training complete!")
     print(f"  Epochs:         {cfg.EPOCHS}")
     print(f"  Final train:    {loss_history['train_loss'][-1]:.4f}")
-    if loss_history.get('val_loss'):
-        print(f"  Final val:      {loss_history['val_loss'][-1]:.4f}")
+    print(f"  Final val:      {loss_history['val_loss'][-1]:.4f}")
     print(f"  Final test:     {loss_history['test_loss'][-1]:.4f}")
     print(f"  Checkpoints:    {cfg.OUTPUT_DIR}")
     print(f"  Loss plot:      {os.path.join(cfg.OUTPUT_DIR, 'train_vs_test_loss.png')}")

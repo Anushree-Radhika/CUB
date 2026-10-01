@@ -4,18 +4,16 @@
 # --- core ---
 torch>=2.5.0
 torchvision>=0.20.0
-
-# NumPy 1.x for older timm/open-clip compatibility
-numpy>=1.26.4
+numpy>=1.26.4,<2
 
 # --- Hugging Face stack ---
 transformers>=4.46.0,<5.0.0
 huggingface-hub>=0.25.0
 tokenizers>=0.20.0
 safetensors>=0.4.5
-peft>=0.13.0
+peft>=0.15.0
 accelerate>=1.0.0
-
+sentencepiece
 # --- vision encoder (BioCLIP) ---
 open-clip-torch>=2.29.0
 timm>=1.0.11
