@@ -882,8 +882,8 @@ class TraitGen(nn.Module):
         target_len = target_ids.size(1)
 
         prompt_ids = torch.empty((1, 0), dtype=torch.long, device=device)
-        prompt_embeds = self.decoder.gpt2.get_input_embeddings()(prompt_ids)
-        target_embeds = self.decoder.gpt2.get_input_embeddings()(target_ids)
+        prompt_embeds = self.decoder.llm.get_input_embeddings()(prompt_ids)
+        target_embeds = self.decoder.llm.get_input_embeddings()(target_ids)
 
         # 4. Integrate gradients along the path baseline -> prefix_embeds
         total_grad = torch.zeros_like(prefix_embeds)
@@ -894,10 +894,12 @@ class TraitGen(nn.Module):
             interp = interp.clone().requires_grad_(True)
 
             inputs_embeds = torch.cat([prompt_embeds, interp, target_embeds], dim=1)
+            if(self.args.decoder_model == "Qwen/Qwen3-1.7B-Base"):
+                inputs_embeds = inputs_embeds.to(torch.float16)
             prefix_len = interp.size(1)
             attention_mask = torch.ones((1, prefix_len + target_len), device=device, dtype=torch.long)
 
-            outputs = self.decoder.gpt2(inputs_embeds=inputs_embeds, attention_mask=attention_mask)
+            outputs = self.decoder.llm(inputs_embeds=inputs_embeds, attention_mask=attention_mask)
             log_probs = F.log_softmax(outputs.logits, dim=-1)
 
             total_log_prob = 0.0
@@ -905,7 +907,7 @@ class TraitGen(nn.Module):
                 pred_pos = prefix_len - 1 + t
                 total_log_prob = total_log_prob + log_probs[0, pred_pos, target_ids[0, t]]
 
-            self.decoder.gpt2.zero_grad()
+            self.decoder.llm.zero_grad()
             grad = torch.autograd.grad(total_log_prob, interp, retain_graph=False)[0]
             total_grad = total_grad + grad.detach()
 

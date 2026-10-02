@@ -21,8 +21,8 @@ from torch.utils.data.distributed import DistributedSampler
 
 from dataset.dataset import CocoFormatDataset
 from PIL import Image
-from Model.model import TraitGen
-from Model.VisionEncoder import VisionEncoder
+from Model.modelv2 import TraitGen
+from Model.VisionEncoderPooled import VisionEncoder
 from engine import *
 
 import os
@@ -60,7 +60,9 @@ def main(args):
             
     if not (model_state_path == "scratch"):
         _ = load_checkpoint(model_state_path,model,None,None)
-    image_path = args.input_image
+    
+    print("State image path")
+    image_path = str(input()).strip()
     
     
     if not image_path == 'scratch':

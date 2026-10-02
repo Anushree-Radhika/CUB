@@ -1,0 +1,1 @@
+python generate_map.py --load_path "output/best_model_21.pth" --decoder_model "Qwen/Qwen3-1.7B-Base"
