@@ -27,6 +27,19 @@ from peft import LoraConfig, TaskType, get_peft_model, set_peft_model_state_dict
 import config as cfg
 
 
+def _cfg(name, default):
+    return getattr(cfg, name, default)
+
+
+def extract_species(text: str) -> str:
+    """Normalised species name found after the marker sentence ('' if absent)."""
+    marker = _cfg("SPECIES_MARKER", "This species is likely")
+    if marker not in text:
+        return ""
+    s = text.split(marker, 1)[1].strip().split("\n")[0].split(".")[0]
+    return " ".join(s.lower().replace("_", " ").replace("-", " ").split())
+
+
 # ============================================================================
 # BioCLIP vision encoder (frozen)
 # ============================================================================
@@ -83,13 +96,14 @@ class BioCLIPEncoder(nn.Module):
 class ImageProjector(nn.Module):
     """LayerNorm -> Linear -> GELU -> Linear."""
 
-    def __init__(self, vision_dim: int, hidden_dim: int):
+    def __init__(self, vision_dim: int, hidden_dim: int, dropout: float = 0.1):
         super().__init__()
         intermediate = min(vision_dim * 4, hidden_dim * 2)
         self.projector = nn.Sequential(
             nn.LayerNorm(vision_dim),
             nn.Linear(vision_dim, intermediate),
             nn.GELU(),
+            nn.Dropout(dropout),
             nn.Linear(intermediate, hidden_dim),
         )
 
@@ -187,7 +201,9 @@ class TraitGenModel(nn.Module):
         self.gemma = self.gemma.to(device)
 
         # ---- Projector ----
-        self.projector = ImageProjector(self.vision_dim, self.hidden_size).to(device)
+        self.projector = ImageProjector(
+            self.vision_dim, self.hidden_size, _cfg("PROJECTOR_DROPOUT", 0.1)
+        ).to(device)
 
         self._verify_frozen_params()
 
@@ -253,6 +269,17 @@ class TraitGenModel(nn.Module):
         emb_dtype = self.embedding.weight.dtype
         dev = image_features.device
 
+        # Patch-token dropout (training only): keep a random subset of image tokens
+        # so the LM cannot memorise a training image from its exact token set.
+        keep = _cfg("PATCH_KEEP_RATIO", 0.7)
+        if self.projector.training and keep < 1.0:
+            N = image_features.size(1)
+            k = max(1, int(round(N * keep)))
+            idx = torch.rand(B, N, device=dev).topk(k, dim=1).indices.sort(dim=1).values
+            image_features = image_features.gather(
+                1, idx.unsqueeze(-1).expand(-1, -1, image_features.size(-1))
+            )
+
         projected = self.projector(image_features).to(emb_dtype)
 
         parts = []
@@ -273,37 +300,74 @@ class TraitGenModel(nn.Module):
     # ------------------------------------------------------------------
     # Text batch: EOS is appended to EACH caption BEFORE padding
     # ------------------------------------------------------------------
+    def _tok(self, text, lead_space):
+        if not text:
+            return []
+        return self.tokenizer(
+            (" " if lead_space else "") + text, add_special_tokens=False
+        )["input_ids"]
+
     def _text_batch(self, captions):
+        """
+        Returns (ids, attention_mask, species_mask). EOS is appended to EACH caption
+        before padding. With SPECIES_FIRST the species sentence leads the caption, so
+        it is predicted straight from the image and is never truncated.
+        """
         eos = self.tokenizer.eos_token_id
         pad = self.tokenizer.pad_token_id
+        marker = _cfg("SPECIES_MARKER", "This species is likely")
+        species_first = _cfg("SPECIES_FIRST", True)
+        budget = cfg.MAX_TEXT_TOKENS - 1            # leave room for EOS
 
-        seqs = [
-            self.tokenizer(
-                c, add_special_tokens=False, truncation=True,
-                max_length=cfg.MAX_TEXT_TOKENS - 1,
-            )["input_ids"] + [eos]
-            for c in captions
-        ]
+        seqs, smasks = [], []
+        for c in captions:
+            if marker in c:
+                attrs, rest = c.split(marker, 1)
+                spec_text = (marker + rest).strip()
+            else:
+                attrs, spec_text = c, ""
+            attrs = attrs.strip()
+
+            spec_ids = self._tok(spec_text, lead_space=not species_first)[:budget]
+            attr_ids = self._tok(attrs, lead_space=species_first)
+            attr_ids = attr_ids[: max(0, budget - len(spec_ids))]
+
+            if species_first:
+                ids = spec_ids + attr_ids
+                sm = [1] * len(spec_ids) + [0] * len(attr_ids)
+            else:
+                ids = attr_ids + spec_ids
+                sm = [0] * len(attr_ids) + [1] * len(spec_ids)
+
+            seqs.append(ids + [eos])
+            smasks.append(sm + [0])
+
         B, T = len(seqs), max(len(s) for s in seqs)
-
         ids = torch.full((B, T), pad, dtype=torch.long, device=self.device)
         mask = torch.zeros((B, T), dtype=torch.long, device=self.device)
+        species_mask = torch.zeros((B, T), dtype=torch.bool, device=self.device)
         for i, s in enumerate(seqs):
-            ids[i, :len(s)] = torch.tensor(s, dtype=torch.long, device=self.device)
-            mask[i, :len(s)] = 1
-        return ids, mask
+            n = len(s)
+            ids[i, :n] = torch.tensor(s, dtype=torch.long, device=self.device)
+            mask[i, :n] = 1
+            species_mask[i, :n] = torch.tensor(smasks[i], dtype=torch.bool, device=self.device)
+        return ids, mask, species_mask
 
     # ------------------------------------------------------------------
     # Loss (shared by forward / forward_loss_components)
     # ------------------------------------------------------------------
-    def _loss(self, image_paths: list, captions: list):
+    def _loss(self, image_paths: list, captions: list, train_objective: bool = True):
+        """
+        train_objective=True : label smoothing + species-token weighting (for training)
+        train_objective=False: plain per-token cross-entropy (for val/test reporting)
+        """
         with torch.no_grad():
             image_features = self.vision_encoder(image_paths)
 
         prefix = self._build_prefix(image_features)
         P = prefix.size(1)
 
-        ids, mask = self._text_batch(captions)
+        ids, mask, species_mask = self._text_batch(captions)
         B, T = ids.shape
 
         inputs_embeds = torch.cat([prefix, self.embedding(ids)], dim=1)
@@ -325,18 +389,23 @@ class TraitGenModel(nn.Module):
             logits.reshape(-1, logits.size(-1)),
             ids.reshape(-1),
             reduction="none",
+            label_smoothing=_cfg("LABEL_SMOOTHING", 0.1) if train_objective else 0.0,
         ).view(B, T)
 
-        n_tokens = mask.sum()
-        loss = (ce * mask).sum() / n_tokens
-        return loss, int(n_tokens.item())
+        w = mask.float()
+        if train_objective:
+            sw = _cfg("SPECIES_TOKEN_WEIGHT", 3.0)
+            w = w * (1.0 + (sw - 1.0) * species_mask.float())
+
+        loss = (ce * w).sum() / w.sum()
+        return loss, int(mask.sum().item())
 
     def forward(self, image_paths: list, captions: list) -> torch.Tensor:
-        return self._loss(image_paths, captions)[0]
+        return self._loss(image_paths, captions, train_objective=True)[0]
 
     def forward_loss_components(self, image_paths: list, captions: list):
-        """Returns (mean_loss, num_target_tokens) for token-weighted averaging."""
-        return self._loss(image_paths, captions)
+        """Plain mean CE and number of target tokens (for token-weighted averaging)."""
+        return self._loss(image_paths, captions, train_objective=False)
 
     # ------------------------------------------------------------------
     # Generation
