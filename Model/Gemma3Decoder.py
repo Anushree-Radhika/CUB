@@ -5,11 +5,16 @@ import torch.nn.functional as F
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from peft import LoraConfig, TaskType, get_peft_model
 
-MAX_TEXT_LEN = 300
+MAX_TEXT_LEN = 800
 NORMAL_TOKEN_WEIGHT = 2.0
 SPECIES_TOKEN_WEIGHT = 5.0
 EOS_TOKEN_WEIGHT = 5.0
 
+MAX_NEW_TOKENS = 300
+GEN_DO_SAMPLE = False
+GEN_TEMPERATURE = 0.0
+GEN_TOP_P = 0.9
+GEN_REPETITION_PENALTY = 1.0
 
 class Gemma3Decoder(nn.Module):
     """
