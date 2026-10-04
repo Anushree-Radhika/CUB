@@ -117,7 +117,7 @@ def main(args):
             filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr
         )    
         
-        scaler = torch.cuda.amp.GradScaler()
+        scaler = torch.amp.GradScaler('cuda')
         
         cnter = 1
         for epoch in range(start_epoch,start_epoch + args.epochs):

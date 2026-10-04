@@ -57,7 +57,7 @@ def train_one_epoch(model, train_loader, optimizer, device, epoch, scaler=None):
 
         optimizer.zero_grad()
         if scaler is not None:
-            with torch.cuda.amp.autocast(dtype=torch.float16):
+            with torch.amp.autocast('cuda', dtype=torch.float16):
                 loss = model(images, prompt_ids, prompt_mask, target_ids, target_mask, category_mask)
             
             # Skip step if loss is NaN / Inf

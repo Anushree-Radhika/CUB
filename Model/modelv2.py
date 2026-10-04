@@ -292,11 +292,20 @@ class TraitGen(nn.Module):
         if self.args.decoder_model == "Qwen/Qwen3-1.7B-Base" or self.args.decoder_model.startswith("google/gemma-3"):
             inputs_embeds = inputs_embeds.to(torch.float16)
             
+        from transformers import LogitsProcessorList, LogitsProcessor
+        class NaNSafeLogitsProcessor(LogitsProcessor):
+            def __call__(self, input_ids, scores):
+                scores = scores.to(torch.float32) # Upcast for stability
+                scores[torch.isnan(scores)] = -float('inf')
+                return scores
+
         generated = self.decoder.llm.generate(
             inputs_embeds=inputs_embeds, attention_mask=attention_mask,
             max_new_tokens=100, do_sample=True, temperature=0.7, top_p=0.92,
             repetition_penalty=1.2, eos_token_id=self.decoder.tokenizer.eos_token_id,
-            pad_token_id=self.decoder.tokenizer.eos_token_id,)
+            pad_token_id=self.decoder.tokenizer.eos_token_id,
+            logits_processor=LogitsProcessorList([NaNSafeLogitsProcessor()])
+        )
 
         generated_text = self.decoder.tokenizer.batch_decode(generated, skip_special_tokens=True)
 
