@@ -295,8 +295,16 @@ class TraitGen(nn.Module):
         from transformers import LogitsProcessorList, LogitsProcessor
         class NaNSafeLogitsProcessor(LogitsProcessor):
             def __call__(self, input_ids, scores):
-                scores = scores.to(torch.float32) # Upcast for stability
-                scores[torch.isnan(scores)] = -float('inf')
+                scores = scores.to(torch.float32)
+                # Replace NaN and Inf with -inf (zero probability)
+                scores = torch.where(
+                    torch.isfinite(scores), scores,
+                    torch.full_like(scores, -float('inf'))
+                )
+                # If an entire row is -inf, set uniform logits to avoid empty distribution
+                all_neg_inf = (scores == -float('inf')).all(dim=-1)
+                if all_neg_inf.any():
+                    scores[all_neg_inf] = 0.0
                 return scores
 
         generated = self.decoder.llm.generate(

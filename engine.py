@@ -126,7 +126,7 @@ def validate(args, model, val_loader, device, max_gen_batches=40):
         category_mask = batch["category_mask"].to(device)
         
         category = batch["category_name"]
-        with torch.cuda.amp.autocast(dtype=torch.float16):
+        with torch.amp.autocast('cuda', dtype=torch.float16):
             loss = model(images, prompt_ids, prompt_mask, target_ids, target_mask,category_mask)
         
         reduced_loss = reduce_tensor(loss.detach())
@@ -135,7 +135,8 @@ def validate(args, model, val_loader, device, max_gen_batches=40):
         #    print("[Warning] NaN detected during validation loss calculation. Skipping generation for this batch.")
         #    continue
         if i < max_gen_batches:
-            generated_text = raw_model.generate_caption(images, prompt_ids, prompt_mask)
+            with torch.amp.autocast('cuda', enabled=False):
+                generated_text = raw_model.generate_caption(images, prompt_ids, prompt_mask)
             batch_accuracy = classification_accuracy(generated_text, category)
             # Sync loss and accuracy across all GPUs    
             acc_tensor = torch.tensor(batch_accuracy, device=device)
