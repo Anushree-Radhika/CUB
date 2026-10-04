@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from Model.VisionEncoderPooled import VisionEncoder
 from Model.Decoder import GPT2Decoder
 from Model.Qwen3Decoder import Qwen3Decoder
+from Model.Gemma3Decoder import Gemma3Decoder
 
 import os
 
@@ -203,6 +204,8 @@ class TraitGen(nn.Module):
             self.decoder = GPT2Decoder(args)
         elif(args.decoder_model == "Qwen/Qwen3-1.7B-Base" or args.decoder_model == "Qwen/Qwen3-1.7B"):
             self.decoder = Qwen3Decoder(args)
+        elif args.decoder_model.startswith("google/gemma-3"):
+            self.decoder = Gemma3Decoder(args)
         else:
             # fallback to GPT2
             self.decoder = GPT2Decoder(args)
@@ -255,7 +258,7 @@ class TraitGen(nn.Module):
         image_len = prefix_embeds.size(1)
         prompt_len = prompt_ids.size(1)
         
-        if(self.args.decoder_model == "Qwen/Qwen3-1.7B-Base"):
+        if self.args.decoder_model == "Qwen/Qwen3-1.7B-Base" or self.args.decoder_model.startswith("google/gemma-3"):
             inputs_embeds = inputs_embeds.to(torch.float16)
         
         outputs,loss = self.decoder(inputs_embeds=inputs_embeds,
@@ -286,7 +289,7 @@ class TraitGen(nn.Module):
         attention_mask = torch.cat([prompt_mask, prefix_mask], dim=1)
 
         
-        if(self.args.decoder_model == "Qwen/Qwen3-1.7B-Base"):
+        if self.args.decoder_model == "Qwen/Qwen3-1.7B-Base" or self.args.decoder_model.startswith("google/gemma-3"):
             inputs_embeds = inputs_embeds.to(torch.float16)
             
         generated = self.decoder.llm.generate(
