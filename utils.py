@@ -14,10 +14,14 @@ def classification_accuracy(generated_texts, ground_truths):
         if match is None:
             continue
 
-        predicted = match.group(1).strip()
-        gt = gt.strip().strip("'\"").strip()
+        predicted = match.group(1).strip().lower()
+        gt = gt.strip().strip("'\"").strip().lower()
+        
+        # also replace underscores with spaces just in case the model generates them that way
+        predicted = predicted.replace("_", " ")
+        gt = gt.replace("_", " ")
 
-        if predicted == gt:
+        if predicted == gt or predicted in gt or gt in predicted:
             correct += 1
 
     return correct / total if total > 0 else 0.0

@@ -120,6 +120,9 @@ def main(args):
         scaler = torch.amp.GradScaler('cuda')
         
         cnter = 1
+        train_losses_history = []
+        val_losses_history = []
+        
         for epoch in range(start_epoch,start_epoch + args.epochs):
             # Set epoch for sampler to ensure proper shuffling across GPUs
             train_sampler.set_epoch(epoch)
@@ -129,6 +132,7 @@ def main(args):
             # Log and save checkpoints only from rank 0
             if global_rank == 0:
                 logger.info(f"Epoch {epoch}: Train Loss={train_loss:.4f}")
+                train_losses_history.append(train_loss)
 
                 if epoch == start_epoch + args.epochs - 1:
                     # Save model.module to strip the 'module.' wrapper prefix
@@ -139,11 +143,29 @@ def main(args):
                     # Save model.module to strip the 'module.' wrapper prefix
                     save_checkpoint(checkpoint_path, model.module, optimizer,None,epoch)
             
-            val_loss, val_acc = validate(args, model, test_loader, device)
+            val_loss, val_acc, sample_gt, sample_gen = validate(args, model, test_loader, device)
+            
             if global_rank == 0:
+                val_losses_history.append(val_loss)
                 logger.info(f"Epoch {epoch}: Validation Loss={val_loss:.4f} Validation Accuracy={val_acc:.4f}")
+                logger.info(f"    -> [Sample GT]: {sample_gt}")
+                logger.info(f"    -> [Sample Gen]: {sample_gen}")
                     
             cnter += 1
+
+        if global_rank == 0:
+            import matplotlib.pyplot as plt
+            plt.figure(figsize=(10,6))
+            plt.plot(range(start_epoch, start_epoch + args.epochs), train_losses_history, label='Train Loss', marker='o')
+            plt.plot(range(start_epoch, start_epoch + args.epochs), val_losses_history, label='Validation Loss', marker='o')
+            plt.title('Training and Validation Loss Curve')
+            plt.xlabel('Epoch')
+            plt.ylabel('Loss')
+            plt.legend()
+            plt.grid(True)
+            plot_path = os.path.join(args.output_dir, "loss_curve.png")
+            plt.savefig(plot_path)
+            logger.info(f"Saved loss curve plot to {plot_path}")
 
     cleanup_ddp()
 

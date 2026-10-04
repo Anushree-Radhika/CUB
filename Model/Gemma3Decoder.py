@@ -29,7 +29,7 @@ class Gemma3Decoder(nn.Module):
         self.args = args
 
         load_kwargs = dict(
-            torch_dtype=torch.float16,
+            dtype=torch.float16,
             attn_implementation="sdpa",
         )
         if getattr(args, "load_in_4bit", False):

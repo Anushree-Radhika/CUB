@@ -137,19 +137,25 @@ def validate(args, model, val_loader, device, max_gen_batches=40):
         if i < max_gen_batches:
             with torch.amp.autocast('cuda', enabled=False):
                 generated_text = raw_model.generate_caption(images, prompt_ids, prompt_mask)
+            
+            # Print the first generated text of the first batch to debug
+            if i == 0:
+                sample_gt = category[0]
+                sample_gen = generated_text[0]
+                if is_main_process():
+                    print(f"\n[DEBUG] Ground Truth: {sample_gt}")
+                    print(f"[DEBUG] Generated   : {sample_gen}\n")
+
             batch_accuracy = classification_accuracy(generated_text, category)
             # Sync loss and accuracy across all GPUs    
             acc_tensor = torch.tensor(batch_accuracy, device=device)
             reduced_acc = reduce_tensor(acc_tensor)
             accuracy_meter.update(reduced_acc.item(), images.size(0))
             
-        
-        
-
         if is_main_process():
             batches.set_postfix(
                 loss=f"{loss_meter.avg:.4f}", 
                 acc=f"{accuracy_meter.avg:.4f}"
             )
 
-    return loss_meter.avg, accuracy_meter.avg
+    return loss_meter.avg, accuracy_meter.avg, sample_gt, sample_gen
