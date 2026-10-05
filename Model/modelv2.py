@@ -284,51 +284,51 @@ class TraitGen(nn.Module):
 
     @torch.no_grad()
     def generate_caption(self, image, prompt_ids, prompt_mask):
+        with torch.amp.autocast('cuda', dtype=torch.float16):
+            image_features = self.vision_encoder(image).permute(0, 2, 1)
+            prefix_embeds = self.bridge(image_features)
 
-        image_features = self.vision_encoder(image).permute(0, 2, 1)
-        prefix_embeds = self.bridge(image_features)
+            prompt_embeds = self.decoder.llm.get_input_embeddings()(prompt_ids)
+            inputs_embeds = torch.cat([prompt_embeds, prefix_embeds], dim=1)
 
-        prompt_embeds = self.decoder.llm.get_input_embeddings()(prompt_ids)
-        inputs_embeds = torch.cat([prompt_embeds, prefix_embeds], dim=1)
+            B, PREFIX_LEN = prompt_ids.size(0), prefix_embeds.size(1)
+            prefix_mask = torch.ones((B, PREFIX_LEN), device=prompt_ids.device, dtype=torch.long)
+            attention_mask = torch.cat([prompt_mask, prefix_mask], dim=1)
 
-        B, PREFIX_LEN = prompt_ids.size(0), prefix_embeds.size(1)
-        prefix_mask = torch.ones((B, PREFIX_LEN), device=prompt_ids.device, dtype=torch.long)
-        attention_mask = torch.cat([prompt_mask, prefix_mask], dim=1)
-
-        
-        if self.args.decoder_model == "Qwen/Qwen3-1.7B-Base" or self.args.decoder_model.startswith("google/gemma-3"):
-            inputs_embeds = inputs_embeds.to(torch.float16)
-
-        # Scale for Gemma 3
-        if self.args.decoder_model.startswith("google/gemma-3"):
-            inputs_embeds = inputs_embeds * (self.decoder.hidden_dim ** 0.5)
             
-        from transformers import LogitsProcessorList, LogitsProcessor
-        class NaNSafeLogitsProcessor(LogitsProcessor):
-            def __call__(self, input_ids, scores):
-                scores = scores.to(torch.float32)
-                # Replace NaN and Inf with -inf (zero probability)
-                scores = torch.where(
-                    torch.isfinite(scores), scores,
-                    torch.full_like(scores, -float('inf'))
-                )
-                # If an entire row is -inf, set uniform logits to avoid empty distribution
-                all_neg_inf = (scores == -float('inf')).all(dim=-1)
-                if all_neg_inf.any():
-                    scores[all_neg_inf] = 0.0
-                return scores
+            if self.args.decoder_model == "Qwen/Qwen3-1.7B-Base" or self.args.decoder_model.startswith("google/gemma-3"):
+                inputs_embeds = inputs_embeds.to(torch.float16)
 
-        generated = self.decoder.llm.generate(
-            inputs_embeds=inputs_embeds, attention_mask=attention_mask,
-            max_new_tokens=100, do_sample=True, temperature=0.7, top_p=0.92,
-            repetition_penalty=1.2, eos_token_id=self.decoder.tokenizer.eos_token_id,
-            pad_token_id=self.decoder.tokenizer.eos_token_id,
-            logits_processor=LogitsProcessorList([NaNSafeLogitsProcessor()])
-        )
+            # Scale for Gemma 3
+            if self.args.decoder_model.startswith("google/gemma-3"):
+                inputs_embeds = inputs_embeds * (self.decoder.hidden_dim ** 0.5)
+                
+            from transformers import LogitsProcessorList, LogitsProcessor
+            class NaNSafeLogitsProcessor(LogitsProcessor):
+                def __call__(self, input_ids, scores):
+                    scores = scores.to(torch.float32)
+                    # Replace NaN and Inf with -inf (zero probability)
+                    scores = torch.where(
+                        torch.isfinite(scores), scores,
+                        torch.full_like(scores, -float('inf'))
+                    )
+                    # If an entire row is -inf, set uniform logits to avoid empty distribution
+                    all_neg_inf = (scores == -float('inf')).all(dim=-1)
+                    if all_neg_inf.any():
+                        scores[all_neg_inf] = 0.0
+                    return scores
 
-        generated_text = self.decoder.tokenizer.batch_decode(generated, skip_special_tokens=True)
+            generated = self.decoder.llm.generate(
+                inputs_embeds=inputs_embeds, attention_mask=attention_mask,
+                max_new_tokens=100, do_sample=True, temperature=0.7, top_p=0.92,
+                repetition_penalty=1.2, eos_token_id=self.decoder.tokenizer.eos_token_id,
+                pad_token_id=self.decoder.tokenizer.eos_token_id,
+                logits_processor=LogitsProcessorList([NaNSafeLogitsProcessor()])
+            )
 
-        return generated_text
+            generated_text = self.decoder.tokenizer.batch_decode(generated, skip_special_tokens=True)
+
+            return generated_text
     
     @torch.no_grad()
     def generate_image_patches_old(self,image,prompt_list,device="cuda",base_output_path="./similarity_analysis"):
