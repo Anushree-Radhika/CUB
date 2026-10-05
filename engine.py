@@ -1,9 +1,12 @@
 import time
 from tqdm import tqdm
+
 import torch
 import torch.distributed as dist
 from torch.cuda.amp import autocast, GradScaler
+
 from utils import AverageMeter, save_checkpoint, load_checkpoint, classification_accuracy
+
 
 def is_main_process():
     """Checks if current process is rank 0 or non-distributed."""
