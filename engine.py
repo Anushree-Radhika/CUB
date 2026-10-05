@@ -1,12 +1,9 @@
 import time
 from tqdm import tqdm
-
 import torch
 import torch.distributed as dist
 from torch.cuda.amp import autocast, GradScaler
-
 from utils import AverageMeter, save_checkpoint, load_checkpoint, classification_accuracy
-
 
 def is_main_process():
     """Checks if current process is rank 0 or non-distributed."""
@@ -135,7 +132,7 @@ def validate(args, model, val_loader, device, max_gen_batches=40):
         #    print("[Warning] NaN detected during validation loss calculation. Skipping generation for this batch.")
         #    continue
         if i < max_gen_batches:
-            with torch.amp.autocast('cuda', enabled=False):
+            with torch.amp.autocast('cuda', dtype=torch.float16):
                 generated_text = raw_model.generate_caption(images, prompt_ids, prompt_mask)
             
             # Print the first generated text of the first batch to debug
