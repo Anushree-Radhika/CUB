@@ -5,7 +5,7 @@ from pathlib import Path
 
 # Configuration
 IMAGE_DIR = Path("/home/paul/DATASET/CUB_200_2011/images/001.Black_footed_Albatross")
-CHECKPOINT = "output-exp-gemma/best_model.pth"
+CHECKPOINT = "output/best_model.pth"
 OUTPUT_FILE = "generation_diff_gemma.txt"
 
 # Supported image extensions
