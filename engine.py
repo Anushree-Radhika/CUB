@@ -57,7 +57,7 @@ def train_one_epoch(model, train_loader, optimizer, device, epoch, scaler=None):
 
         optimizer.zero_grad()
         if scaler is not None:
-            with torch.amp.autocast('cuda', dtype=torch.float16):
+            with torch.amp.autocast('cuda', dtype=torch.bfloat16):
                 loss = model(images, prompt_ids, prompt_mask, target_ids, target_mask, category_mask)
             
             # Skip step if loss is NaN / Inf
@@ -126,7 +126,7 @@ def validate(args, model, val_loader, device, max_gen_batches=40):
         category_mask = batch["category_mask"].to(device)
         
         category = batch["category_name"]
-        with torch.amp.autocast('cuda', dtype=torch.float16):
+        with torch.amp.autocast('cuda', dtype=torch.bfloat16):
             loss = model(images, prompt_ids, prompt_mask, target_ids, target_mask,category_mask)
         
         reduced_loss = reduce_tensor(loss.detach())
@@ -135,12 +135,12 @@ def validate(args, model, val_loader, device, max_gen_batches=40):
         #    print("[Warning] NaN detected during validation loss calculation. Skipping generation for this batch.")
         #    continue
         if i < max_gen_batches:
-            with torch.amp.autocast('cuda', dtype=torch.float16):
+            with torch.amp.autocast('cuda', dtype=torch.bfloat16):
                 generated_text = raw_model.generate_caption(images, prompt_ids, prompt_mask)
             
             # Print the first generated text of the first batch to debug
             if i == 0:
-                sample_gt = category[0]
+                sample_gt = batch["caption"][0]
                 sample_gen = generated_text[0]
                 if is_main_process():
                     print(f"\n[DEBUG] Ground Truth: {sample_gt}")

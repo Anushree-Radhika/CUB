@@ -3,8 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from Model.VisionEncoderPooled import VisionEncoder
-from Model.Decoder import GPT2Decoder
-from Model.Qwen3Decoder import Qwen3Decoder
 from Model.Gemma3Decoder import Gemma3Decoder
 
 import os
@@ -190,8 +188,8 @@ class TraitGen(nn.Module):
 
     Components:
         - VisionEncoder: extracts image representations.
-        - Bridge: projects visual features into GPT-2 embedding space.
-        - GPT2Decoder: generates captions conditioned on image features.
+        - Bridge: projects visual features into LM embedding space.
+        - Gemma3Decoder: generates captions conditioned on image features.
     """
 
     def __init__(self, args, vision_encoder=None):
@@ -200,17 +198,7 @@ class TraitGen(nn.Module):
         self.args = args
         self.vision_encoder = VisionEncoder(args) if vision_encoder is None else vision_encoder
         
-        if(args.decoder_model == "openai-community/gpt2-medium"):
-            self.decoder = GPT2Decoder(args)
-        elif(args.decoder_model == "Qwen/Qwen3-1.7B-Base" or args.decoder_model == "Qwen/Qwen3-1.7B"):
-            self.decoder = Qwen3Decoder(args)
-        elif args.decoder_model.startswith("google/gemma-3"):
-            self.decoder = Gemma3Decoder(args)
-        else:
-            # fallback to GPT2
-            self.decoder = GPT2Decoder(args)
-            print("Fallback to GPT2 decoder")
-            print("="*80)
+        self.decoder = Gemma3Decoder(args)
 
         self.bridge = Bridge(vision_dim=args.encoder_op_dim, hidden_dim=self.decoder.hidden_dim)
 
@@ -258,8 +246,7 @@ class TraitGen(nn.Module):
         image_len = prefix_embeds.size(1)
         prompt_len = prompt_ids.size(1)
         
-        if self.args.decoder_model == "Qwen/Qwen3-1.7B-Base" or self.args.decoder_model.startswith("google/gemma-3"):
-            inputs_embeds = inputs_embeds.to(torch.float16)
+        inputs_embeds = inputs_embeds.to(torch.bfloat16)
 
         # CRITICAL FIX for Gemma 3: 
         # HuggingFace Gemma models automatically scale inputs_embeds by sqrt(hidden_dim) internally.
@@ -283,7 +270,7 @@ class TraitGen(nn.Module):
 
     @torch.no_grad()
     def generate_caption(self, image, prompt_ids, prompt_mask):
-        with torch.amp.autocast('cuda', dtype=torch.float16):
+        with torch.amp.autocast('cuda', dtype=torch.bfloat16):
             image_features = self.vision_encoder(image).permute(0, 2, 1)
             prefix_embeds = self.bridge(image_features)
 
@@ -294,9 +281,7 @@ class TraitGen(nn.Module):
             prefix_mask = torch.ones((B, PREFIX_LEN), device=prompt_ids.device, dtype=torch.long)
             attention_mask = torch.cat([prompt_mask, prefix_mask], dim=1)
 
-            
-            if self.args.decoder_model == "Qwen/Qwen3-1.7B-Base" or self.args.decoder_model.startswith("google/gemma-3"):
-                inputs_embeds = inputs_embeds.to(torch.float16)
+            inputs_embeds = inputs_embeds.to(torch.bfloat16)
 
             # Scale for Gemma 3 (DISABLED: HuggingFace does this internally now!)
             # if self.args.decoder_model.startswith("google/gemma-3"):
