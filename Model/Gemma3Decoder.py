@@ -52,9 +52,14 @@ class AllowedTokensLogitsProcessor(LogitsProcessor):
         self._allowed_ids = torch.tensor(sorted(allowed_ids), dtype=torch.long)
 
     def __call__(self, input_ids, scores):
+        # The tokenizer might contain token IDs larger than the model's actual LM head
+        # output size. We filter them here to prevent CUDA index out of bounds errors.
+        vocab_size = scores.size(-1)
+        valid_ids = self._allowed_ids[self._allowed_ids < vocab_size].to(scores.device)
+        
         # Build a mask over the full vocab dimension
         mask = torch.full_like(scores, -float('inf'))
-        mask[:, self._allowed_ids.to(scores.device)] = 0.0
+        mask[:, valid_ids] = 0.0
         return scores + mask
 
 
