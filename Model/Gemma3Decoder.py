@@ -1,11 +1,12 @@
+import re
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, LogitsProcessor
 from peft import LoraConfig, TaskType, get_peft_model
 
-MAX_TEXT_LEN = 800
+MAX_TEXT_LEN = 500
 NORMAL_TOKEN_WEIGHT = 2.0
 SPECIES_TOKEN_WEIGHT = 5.0
 EOS_TOKEN_WEIGHT = 5.0
@@ -15,6 +16,47 @@ GEN_DO_SAMPLE = False
 GEN_TEMPERATURE = 0.0
 GEN_TOP_P = 0.9
 GEN_REPETITION_PENALTY = 1.0
+
+# ─── ASCII-only vocabulary filter ──────────────────────────────────────────────
+# Gemma3's 262K vocabulary includes CJK, emoji, code tokens, etc.  Our CUB trait
+# dataset only ever produces ASCII-printable English text.  This processor masks
+# every token whose decoded form contains non-ASCII bytes, preventing garbled
+# punctuation (e.g. "Leg?brown", ";browncolor.") and non-English tokens.
+# ───────────────────────────────────────────────────────────────────────────────
+
+_ASCII_PRINTABLE_RE = re.compile(r'^[\x20-\x7E]*$')   # space through tilde
+
+class AllowedTokensLogitsProcessor(LogitsProcessor):
+    """
+    At each decoding step, set logit = -inf for every token NOT in the
+    pre-computed whitelist.  The whitelist is built once from the tokenizer
+    vocabulary, keeping only tokens whose decoded string is purely ASCII
+    printable (letters, digits, basic punctuation, space).
+    """
+
+    def __init__(self, tokenizer):
+        super().__init__()
+        vocab = tokenizer.get_vocab()           # str -> int
+        allowed_ids = set()
+        for token_str, token_id in vocab.items():
+            decoded = tokenizer.decode([token_id])
+            if _ASCII_PRINTABLE_RE.match(decoded):
+                allowed_ids.add(token_id)
+
+        # Always allow eos/bos/pad so the model can stop
+        for special_id in [tokenizer.eos_token_id, tokenizer.bos_token_id,
+                           tokenizer.pad_token_id]:
+            if special_id is not None:
+                allowed_ids.add(special_id)
+
+        self._allowed_ids = torch.tensor(sorted(allowed_ids), dtype=torch.long)
+
+    def __call__(self, input_ids, scores):
+        # Build a mask over the full vocab dimension
+        mask = torch.full_like(scores, -float('inf'))
+        mask[:, self._allowed_ids.to(scores.device)] = 0.0
+        return scores + mask
+
 
 class Gemma3Decoder(nn.Module):
     """
@@ -74,6 +116,12 @@ class Gemma3Decoder(nn.Module):
 
         self.hidden_dim = self.llm.config.hidden_size  # e.g., 1152 for 1B
         self.embedding = self.llm.get_input_embeddings()
+
+        # Build the ASCII-only vocabulary filter once (no trainable params)
+        self.allowed_token_processor = AllowedTokensLogitsProcessor(self.tokenizer)
+        print(f"[Gemma3Decoder] Allowed ASCII token IDs: "
+              f"{len(self.allowed_token_processor._allowed_ids)} / "
+              f"{len(self.tokenizer.get_vocab())}")
 
     @property
     def device(self):

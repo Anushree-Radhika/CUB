@@ -318,12 +318,22 @@ class TraitGen(nn.Module):
                         scores[all_neg_inf] = 0.0
                     return scores
 
+            # Build the logits processor list
+            processors = LogitsProcessorList([NaNSafeLogitsProcessor()])
+
+            # For Gemma3: add the ASCII-only vocabulary filter to prevent
+            # non-English / garbled tokens from the 262K vocabulary
+            if self.args.decoder_model.startswith("google/gemma-3"):
+                processors.append(self.decoder.allowed_token_processor)
+
+            # Use sampling to prevent overfitting, but constrain the tokens using our processors
+            # to prevent garbled output from the massive Gemma3 vocabulary
             generated = self.decoder.llm.generate(
                 inputs_embeds=inputs_embeds, attention_mask=attention_mask,
                 max_new_tokens=100, do_sample=True, temperature=0.7, top_p=0.92,
                 repetition_penalty=1.2, eos_token_id=self.decoder.tokenizer.eos_token_id,
                 pad_token_id=self.decoder.tokenizer.eos_token_id,
-                logits_processor=LogitsProcessorList([NaNSafeLogitsProcessor()])
+                logits_processor=processors
             )
 
             generated_text = self.decoder.tokenizer.batch_decode(generated, skip_special_tokens=True)

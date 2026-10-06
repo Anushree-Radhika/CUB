@@ -58,9 +58,18 @@ def main(args):
     if global_rank == 0:
         os.makedirs(args.output_dir, exist_ok=True)
         log_file = os.path.join(args.output_dir, "log.txt")
-        logging.basicConfig(filename=log_file, level=logging.INFO,
-                            format='%(asctime)s | %(message)s')
+        
         logger = logging.getLogger(__name__)
+        logger.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s | %(message)s')
+        
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+        
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
 
     vision_encoder = VisionEncoder(args)
     preprocess = vision_encoder.preprocess
@@ -131,7 +140,6 @@ def main(args):
 
             # Log and save checkpoints only from rank 0
             if global_rank == 0:
-                logger.info(f"Epoch {epoch}: Train Loss={train_loss:.4f}")
                 train_losses_history.append(train_loss)
 
                 if epoch == start_epoch + args.epochs - 1:
@@ -147,25 +155,31 @@ def main(args):
             
             if global_rank == 0:
                 val_losses_history.append(val_loss)
-                logger.info(f"Epoch {epoch}: Validation Loss={val_loss:.4f} Validation Accuracy={val_acc:.4f}")
-                logger.info(f"    -> [Sample GT]: {sample_gt}")
-                logger.info(f"    -> [Sample Gen]: {sample_gen}")
+                logger.info(f"\n{'='*60}")
+                logger.info(f"EPOCH {epoch} SUMMARY:")
+                logger.info(f"Train Loss:      {train_loss:.4f}")
+                logger.info(f"Test/Val Loss:   {val_loss:.4f}")
+                logger.info(f"Accuracy:        {val_acc:.4f}")
+                logger.info(f"Sample GT:       {sample_gt}")
+                logger.info(f"Sample Gen:      {sample_gen}")
+                logger.info(f"{'='*60}\n")
+                
+                # Progressively form and save the train vs test loss curve
+                import matplotlib.pyplot as plt
+                plt.figure(figsize=(10,6))
+                current_epochs = range(start_epoch, epoch + 1)
+                plt.plot(current_epochs, train_losses_history, label='Train Loss', marker='o')
+                plt.plot(current_epochs, val_losses_history, label='Test/Val Loss', marker='o')
+                plt.title('Training and Validation/Test Loss Curve')
+                plt.xlabel('Epoch')
+                plt.ylabel('Loss')
+                plt.legend()
+                plt.grid(True)
+                plot_path = os.path.join(args.output_dir, "loss_curve.png")
+                plt.savefig(plot_path)
+                plt.close()
                     
             cnter += 1
-
-        if global_rank == 0:
-            import matplotlib.pyplot as plt
-            plt.figure(figsize=(10,6))
-            plt.plot(range(start_epoch, start_epoch + args.epochs), train_losses_history, label='Train Loss', marker='o')
-            plt.plot(range(start_epoch, start_epoch + args.epochs), val_losses_history, label='Validation Loss', marker='o')
-            plt.title('Training and Validation Loss Curve')
-            plt.xlabel('Epoch')
-            plt.ylabel('Loss')
-            plt.legend()
-            plt.grid(True)
-            plot_path = os.path.join(args.output_dir, "loss_curve.png")
-            plt.savefig(plot_path)
-            logger.info(f"Saved loss curve plot to {plot_path}")
 
     cleanup_ddp()
 

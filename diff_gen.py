@@ -4,9 +4,9 @@ import difflib
 from pathlib import Path
 
 # Configuration
-IMAGE_DIR = Path("../CUB_200_2011/images/001.Black_footed_Albatross")
-CHECKPOINT = "../best_model_14.pth"
-OUTPUT_FILE = "generation_diff.txt"
+IMAGE_DIR = Path("/home/paul/DATASET/CUB_200_2011/images/001.Black_footed_Albatross")
+CHECKPOINT = "output-exp-gemma/best_model.pth"
+OUTPUT_FILE = "generation_diff_gemma.txt"
 
 # Supported image extensions
 EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
@@ -30,7 +30,9 @@ with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
             "python",
             "infer.py",
             "--input_image", str(image_path),
-            "--load_path", CHECKPOINT
+            "--load_path", CHECKPOINT,
+            "--decoder_model", "google/gemma-3-1b-pt",
+            "--max_seq_len", "300"
         ]
 
         result = subprocess.run(
