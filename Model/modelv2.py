@@ -262,11 +262,10 @@ class TraitGen(nn.Module):
             inputs_embeds = inputs_embeds.to(torch.float16)
 
         # CRITICAL FIX for Gemma 3: 
-        # HuggingFace Gemma models expect inputs_embeds to be scaled by sqrt(hidden_dim).
-        # Since we bypass the built-in embedder by passing inputs_embeds directly, we must scale manually.
-        # Otherwise, the inputs are ~40x too small, causing the first RMSNorm to divide by near-zero variance, instantly exploding the model to NaN.
-        if self.args.decoder_model.startswith("google/gemma-3"):
-            inputs_embeds = inputs_embeds * (self.decoder.hidden_dim ** 0.5)
+        # HuggingFace Gemma models automatically scale inputs_embeds by sqrt(hidden_dim) internally.
+        # We MUST NOT do it manually here, otherwise it double-scales and explodes into NaN.
+        # if self.args.decoder_model.startswith("google/gemma-3"):
+        #     inputs_embeds = inputs_embeds * (self.decoder.hidden_dim ** 0.5)
         
         outputs,loss = self.decoder(inputs_embeds=inputs_embeds,
                 attention_mask=attention_mask, 
@@ -299,9 +298,9 @@ class TraitGen(nn.Module):
             if self.args.decoder_model == "Qwen/Qwen3-1.7B-Base" or self.args.decoder_model.startswith("google/gemma-3"):
                 inputs_embeds = inputs_embeds.to(torch.float16)
 
-            # Scale for Gemma 3
-            if self.args.decoder_model.startswith("google/gemma-3"):
-                inputs_embeds = inputs_embeds * (self.decoder.hidden_dim ** 0.5)
+            # Scale for Gemma 3 (DISABLED: HuggingFace does this internally now!)
+            # if self.args.decoder_model.startswith("google/gemma-3"):
+            #     inputs_embeds = inputs_embeds * (self.decoder.hidden_dim ** 0.5)
                 
             from transformers import LogitsProcessorList, LogitsProcessor
             class NaNSafeLogitsProcessor(LogitsProcessor):

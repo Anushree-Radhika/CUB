@@ -15,6 +15,6 @@ torchrun --nproc_per_node=2 main.py \
     --encoder_op_dim 768 \
     --decoder_model "google/gemma-3-1b-pt" \
     --streeing_prompt "species identification and corresponding textual explanation task." \
-    --ann_dir "/home/paul/DATASET/cub_data_coco_annot" \
+    --ann_dir "." \
     --validate_model 0 \
     --load_path "scratch" \
