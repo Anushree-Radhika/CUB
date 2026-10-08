@@ -10,7 +10,7 @@ torchrun --nproc_per_node=2 main.py \
     --epochs 20 \
     --optimizer "adamw" \
     --max_seq_len 256 \
-    --batch_size 8 \
+    --batch_size 2 \
     --encoder_model "hf-hub:imageomics/bioclip" \
     --encoder_op_dim 768 \
     --decoder_model "google/gemma-3-1b-pt" \

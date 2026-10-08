@@ -1,30 +1,41 @@
 import os
 import subprocess
 import difflib
+import json
+import re
 from pathlib import Path
+from utils import classification_accuracy
 
 # Configuration
-IMAGE_DIR = Path("/home/paul/DATASET/CUB_200_2011/images/001.Black_footed_Albatross")
+# Assuming DATA_ROOT is the base directory containing the images as specified in the script
+DATA_ROOT = Path("/home/paul/DATASET/CUB_200_2011/images/")
 CHECKPOINT = "output/best_model.pth"
 OUTPUT_FILE = "generation_diff_gemma.txt"
+TRAIN_JSON = "train.json"
+TEST_JSON = "test.json"
 
-# Supported image extensions
-EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+# Load ground truths
+data = []
+for json_file in [TRAIN_JSON, TEST_JSON]:
+    if os.path.exists(json_file):
+        with open(json_file, 'r', encoding='utf-8') as f:
+            data.extend(json.load(f))
 
-# Get all images recursively
-images = sorted(
-    p for p in IMAGE_DIR.rglob("*")
-    if p.suffix.lower() in EXTENSIONS
-)
-
-previous_generation = None
-previous_image = None
+total_samples = 0
+correct_classifications = 0
 
 with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+    for i, item in enumerate(data):
+        rel_path = item["imagePath"]
+        gt_text = item["gt"]
+        image_path = DATA_ROOT / rel_path
 
-    for i, image_path in enumerate(images):
-
-        print(f"[{i+1}/{len(images)}] {image_path}")
+        print(f"[{i+1}/{len(data)}] {image_path}")
+        
+        # Skip if image doesn't exist to prevent errors
+        if not image_path.exists():
+            print(f"Warning: {image_path} does not exist, skipping.")
+            continue
 
         command = [
             "python",
@@ -48,49 +59,45 @@ with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
 
         generated = result.stdout.strip()
 
-        # First image: no previous generation to compare
-        if previous_generation is None:
+        # Extract ground truth category
+        # Assumes ground truth format: It is a species of "Category Name" as it has...
+        match = re.search(r'\"([^\"]+)\"', gt_text)
+        gt_category = match.group(1) if match else gt_text
+        
+        # Calculate classification accuracy for this image
+        acc = classification_accuracy([generated], [gt_category])
+        correct_classifications += acc
+        total_samples += 1
 
-            f.write("=" * 80 + "\n")
-            f.write(f"IMAGE: {image_path}\n")
-            f.write("FIRST GENERATION\n")
-            f.write(f"GENERATED:\n{generated}\n")
+        # Word-level diff between Ground Truth and Generated Text
+        diff = list(difflib.ndiff(
+            gt_text.split(),
+            generated.split()
+        ))
 
+        changes = [
+            line for line in diff
+            if line.startswith("+ ") or line.startswith("- ")
+        ]
+
+        f.write("=" * 80 + "\n")
+        f.write(f"IMAGE: {image_path}\n")
+        
+        if not changes:
+            f.write("STATUS: IDENTICAL TO GROUND TRUTH\n")
         else:
+            f.write("STATUS: DIFFERENT FROM GROUND TRUTH\n\n")
+            f.write("GROUND TRUTH:\n")
+            f.write(gt_text + "\n\n")
+            f.write("GENERATED:\n")
+            f.write(generated + "\n\n")
+            f.write("CHANGES ( '-' means missing in generated, '+' means extra in generated ):\n")
+            f.write("\n".join(changes) + "\n")
 
-            # Word-level diff
-            diff = list(difflib.ndiff(
-                previous_generation.split(),
-                generated.split()
-            ))
-
-            changes = [
-                line for line in diff
-                if line.startswith("+ ") or line.startswith("- ")
-            ]
-
-            f.write("=" * 80 + "\n")
-            f.write(f"IMAGE: {image_path}\n")
-            f.write(f"PREVIOUS IMAGE: {previous_image}\n")
-
-            if not changes:
-
-                f.write("STATUS: IDENTICAL TO PREVIOUS\n")
-
-            else:
-
-                f.write("STATUS: DIFFERENT\n\n")
-
-                f.write("PREVIOUS GENERATION:\n")
-                f.write(previous_generation + "\n\n")
-
-                f.write("CURRENT GENERATION:\n")
-                f.write(generated + "\n\n")
-
-                f.write("CHANGES:\n")
-                f.write("\n".join(changes) + "\n")
-
-        previous_generation = generated
-        previous_image = image_path
+    if total_samples > 0:
+        final_accuracy = correct_classifications / total_samples
+        f.write("=" * 80 + "\n")
+        f.write(f"FINAL CLASSIFICATION ACCURACY: {final_accuracy:.4f} ({int(correct_classifications)}/{total_samples})\n")
+        print(f"\nFinal Classification Accuracy: {final_accuracy:.4f} ({int(correct_classifications)}/{total_samples})")
 
 print(f"\nDone! Results saved to {OUTPUT_FILE}")
