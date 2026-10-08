@@ -6,7 +6,6 @@ import re
 from pathlib import Path
 from utils import classification_accuracy
 
-# Configuration
 # Assuming DATA_ROOT is the base directory containing the images as specified in the script
 DATA_ROOT = Path("/home/paul/DATASET/CUB_200_2011/images/")
 CHECKPOINT = "output/best_model.pth"
