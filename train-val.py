@@ -38,6 +38,7 @@ def get_args_parser():
                         help='Optimizer (default: %(default)s)')
     parser.add_argument('--max_seq_len', default=256, type=int)
     parser.add_argument('--batch_size', default=4, type=int, help='Batch size per GPU')
+    parser.add_argument('--grad_accum_steps', default=8, type=int, help='Gradient accumulation steps')
     parser.add_argument('--encoder_model', default="hf-hub:imageomics/bioclip")
     parser.add_argument('--encoder_op_dim', default=768, type=int)
     parser.add_argument('--decoder_model', default="openai-community/gpt2-medium")
@@ -136,7 +137,7 @@ def main(args):
             # Set epoch for sampler to ensure proper shuffling across GPUs
             train_sampler.set_epoch(epoch)
 
-            train_loss = train_one_epoch(model, train_loader, optimizer, device, epoch,scaler=scaler)
+            train_loss = train_one_epoch(model, train_loader, optimizer, device, epoch, scaler=scaler, grad_accum_steps=args.grad_accum_steps)
 
             # Log and save checkpoints only from rank 0
             if global_rank == 0:

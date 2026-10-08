@@ -23,7 +23,7 @@ def reduce_tensor(tensor):
     return rt
 
 
-def train_one_epoch(model, train_loader, optimizer, device, epoch, scaler=None):
+def train_one_epoch(model, train_loader, optimizer, device, epoch, scaler=None, grad_accum_steps=8):
     model.train()
     
     # Safely unwrap DDP model to access custom methods like generate_caption
@@ -41,7 +41,8 @@ def train_one_epoch(model, train_loader, optimizer, device, epoch, scaler=None):
         disable=not is_main_process()
     )
 
-    for batch in batches:
+    optimizer.zero_grad()
+    for i, batch in enumerate(batches):
         images = batch["image"].to(device)
         prompt_ids = batch["prompt_ids"].to(device)
         prompt_mask = batch["prompt_mask"].to(device)
@@ -55,32 +56,30 @@ def train_one_epoch(model, train_loader, optimizer, device, epoch, scaler=None):
         #with torch.no_grad():
         #    generated_text = raw_model.generate_caption(images, prompt_ids, prompt_mask)
 
-        optimizer.zero_grad()
         if scaler is not None:
             with torch.amp.autocast('cuda', dtype=torch.bfloat16):
                 loss = model(images, prompt_ids, prompt_mask, target_ids, target_mask, category_mask)
+                loss = loss / grad_accum_steps
             
-            # Skip step if loss is NaN / Inf
-            #if torch.isnan(loss) or torch.isinf(loss):
-            #    print(f"[Warning] NaN/Inf loss encountered in Epoch {epoch}, skipping batch step.")
-            #    continue
             scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            scaler.step(optimizer)
-            scaler.update()
+            
+            if (i + 1) % grad_accum_steps == 0 or (i + 1) == len(train_loader):
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                scaler.step(optimizer)
+                scaler.update()
+                optimizer.zero_grad()
             
         else:
             loss = model(images, prompt_ids, prompt_mask, target_ids, target_mask, category_mask)
-            
-            # Skip step if loss is NaN / Inf
-            #if torch.isnan(loss) or torch.isinf(loss):
-            #    print(f"[Warning] NaN/Inf loss encountered in Epoch {epoch}, skipping batch step.")
-            #    continue
+            loss = loss / grad_accum_steps
 
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            optimizer.step()
+            
+            if (i + 1) % grad_accum_steps == 0 or (i + 1) == len(train_loader):
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                optimizer.step()
+                optimizer.zero_grad()
         # Compute accuracy locally
         #batch_accuracy = classification_accuracy(generated_text, category)
 

@@ -6,11 +6,12 @@
 torchrun --nproc_per_node=2 main.py \
     --data_root "/home/paul/DATASET/CUB_200_2011" \
     --output_dir "output" \
-    --lr 1e-4 \
+    --lr 1e-5 \
     --epochs 20 \
     --optimizer "adamw" \
     --max_seq_len 256 \
-    --batch_size 2 \
+    --batch_size 4 \
+    --grad_accum_steps 4 \
     --encoder_model "hf-hub:imageomics/bioclip" \
     --encoder_op_dim 768 \
     --decoder_model "google/gemma-3-1b-pt" \
