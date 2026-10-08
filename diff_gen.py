@@ -4,11 +4,11 @@ import difflib
 import json
 import re
 from pathlib import Path
-from utils import classification_accuracy
+from utils import classification_accuracy, text_f1_score
 
 # Configuration
 # Assuming DATA_ROOT is the base directory containing the images as specified in the script
-DATA_ROOT = Path("/home/paul/DATASET/CUB_200_2011/images/")
+DATA_ROOT = Path("/home/paul/DATASET/CUB_200_2011/images")
 CHECKPOINT = "output/best_model.pth"
 OUTPUT_FILE = "generation_diff_gemma.txt"
 TRAIN_JSON = "train.json"
@@ -16,13 +16,14 @@ TEST_JSON = "test.json"
 
 # Load ground truths
 data = []
-for json_file in [TRAIN_JSON, TEST_JSON]:
+for json_file in [TEST_JSON]:
     if os.path.exists(json_file):
         with open(json_file, 'r', encoding='utf-8') as f:
             data.extend(json.load(f))
 
 total_samples = 0
 correct_classifications = 0
+total_f1 = 0.0
 
 with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
     for i, item in enumerate(data):
@@ -66,7 +67,10 @@ with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         
         # Calculate classification accuracy for this image
         acc = classification_accuracy([generated], [gt_category])
+        f1 = text_f1_score([generated], [gt_text])
+        
         correct_classifications += acc
+        total_f1 += f1
         total_samples += 1
 
         # Word-level diff between Ground Truth and Generated Text
@@ -96,8 +100,11 @@ with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
 
     if total_samples > 0:
         final_accuracy = correct_classifications / total_samples
+        final_f1 = total_f1 / total_samples
         f.write("=" * 80 + "\n")
-        f.write(f"FINAL CLASSIFICATION ACCURACY: {final_accuracy:.4f} ({int(correct_classifications)}/{total_samples})\n")
-        print(f"\nFinal Classification Accuracy: {final_accuracy:.4f} ({int(correct_classifications)}/{total_samples})")
+        f.write(f"FINAL SPECIES CLASSIFICATION ACCURACY: {final_accuracy:.4f} ({int(correct_classifications)}/{total_samples})\n")
+        f.write(f"FINAL TEXT F1 SCORE (WORD OVERLAP): {final_f1:.4f}\n")
+        print(f"\nFinal Species Classification Accuracy: {final_accuracy:.4f} ({int(correct_classifications)}/{total_samples})")
+        print(f"Final Text F1 Score (Word Overlap): {final_f1:.4f}")
 
 print(f"\nDone! Results saved to {OUTPUT_FILE}")

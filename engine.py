@@ -5,7 +5,7 @@ import torch
 import torch.distributed as dist
 from torch.cuda.amp import autocast, GradScaler
 
-from utils import AverageMeter, save_checkpoint, load_checkpoint, classification_accuracy
+from utils import AverageMeter, save_checkpoint, load_checkpoint, classification_accuracy, text_f1_score
 
 
 def is_main_process():
@@ -109,6 +109,7 @@ def validate(args, model, val_loader, device, max_gen_batches=40):
 
     loss_meter = AverageMeter()
     accuracy_meter = AverageMeter()
+    f1_meter = AverageMeter()
 
     batches = tqdm(
         val_loader, 
@@ -147,15 +148,22 @@ def validate(args, model, val_loader, device, max_gen_batches=40):
                     print(f"[DEBUG] Generated   : {sample_gen}\n")
 
             batch_accuracy = classification_accuracy(generated_text, category)
+            batch_f1 = text_f1_score(generated_text, batch["caption"])
+            
             # Sync loss and accuracy across all GPUs    
             acc_tensor = torch.tensor(batch_accuracy, device=device)
             reduced_acc = reduce_tensor(acc_tensor)
             accuracy_meter.update(reduced_acc.item(), images.size(0))
             
+            f1_tensor = torch.tensor(batch_f1, device=device)
+            reduced_f1 = reduce_tensor(f1_tensor)
+            f1_meter.update(reduced_f1.item(), images.size(0))
+            
         if is_main_process():
             batches.set_postfix(
                 loss=f"{loss_meter.avg:.4f}", 
-                acc=f"{accuracy_meter.avg:.4f}"
+                acc=f"{accuracy_meter.avg:.4f}",
+                f1=f"{f1_meter.avg:.4f}"
             )
 
-    return loss_meter.avg, accuracy_meter.avg, sample_gt, sample_gen
+    return loss_meter.avg, accuracy_meter.avg, f1_meter.avg, sample_gt, sample_gen

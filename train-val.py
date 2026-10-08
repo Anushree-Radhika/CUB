@@ -104,9 +104,9 @@ def main(args):
             model_test = TraitGen(args, vision_encoder=vision_encoder).to(device)
             ckpt_info = load_checkpoint(model_state_path,model_test,None,None)
             model_test = DDP(model_test,device_ids=[local_rank],output_device=local_rank,find_unused_parameters=False)
-            val_loss,val_acc = validate(args,model_test,test_loader,device)
+            val_loss,val_acc,val_f1,sample_gt,sample_gen = validate(args,model_test,test_loader,device)
             if global_rank == 0:
-                logger.info(f"Epoch {ckpt_info}: Accuracy={val_acc:.4f} Validation Loss={val_loss:.4f}")
+                logger.info(f"Epoch {ckpt_info}: Accuracy={val_acc:.4f} Text_F1={val_f1:.4f} Validation Loss={val_loss:.4f}")
         else:
             print("ERROR. NO PATH MENTIONED FOR LOADING")
         
@@ -128,9 +128,9 @@ def main(args):
         
         scaler = torch.amp.GradScaler('cuda')
         
-        cnter = 1
         train_losses_history = []
         val_losses_history = []
+        best_val_loss = float('inf')
         
         for epoch in range(start_epoch,start_epoch + args.epochs):
             # Set epoch for sampler to ensure proper shuffling across GPUs
@@ -141,17 +141,8 @@ def main(args):
             # Log and save checkpoints only from rank 0
             if global_rank == 0:
                 train_losses_history.append(train_loss)
-
-                if epoch == start_epoch + args.epochs - 1:
-                    # Save model.module to strip the 'module.' wrapper prefix
-                    checkpoint_path = os.path.join(args.output_dir, "best_model.pth")
-                    save_checkpoint(checkpoint_path, model.module, optimizer,None,epoch)
-                elif cnter % 2 == 0:
-                    checkpoint_path = os.path.join(args.output_dir, f"best_model_{epoch}.pth")
-                    # Save model.module to strip the 'module.' wrapper prefix
-                    save_checkpoint(checkpoint_path, model.module, optimizer,None,epoch)
             
-            val_loss, val_acc, sample_gt, sample_gen = validate(args, model, test_loader, device)
+            val_loss, val_acc, val_f1, sample_gt, sample_gen = validate(args, model, test_loader, device)
             
             if global_rank == 0:
                 val_losses_history.append(val_loss)
@@ -159,10 +150,24 @@ def main(args):
                 logger.info(f"EPOCH {epoch} SUMMARY:")
                 logger.info(f"Train Loss:      {train_loss:.4f}")
                 logger.info(f"Test/Val Loss:   {val_loss:.4f}")
-                logger.info(f"Accuracy:        {val_acc:.4f}")
+                logger.info(f"Species Acc:     {val_acc:.4f}")
+                logger.info(f"Text F1 Score:   {val_f1:.4f}")
                 logger.info(f"Sample GT:       {sample_gt}")
                 logger.info(f"Sample Gen:      {sample_gen}")
                 logger.info(f"{'='*60}\n")
+                
+                # Save best model
+                if val_loss < best_val_loss:
+                    best_val_loss = val_loss
+                    logger.info(f"Validation loss improved. Saving best model...")
+                    checkpoint_path = os.path.join(args.output_dir, "best_model.pth")
+                    save_checkpoint(checkpoint_path, model.module, optimizer, None, epoch)
+                
+                # Save last model at the end
+                if epoch == start_epoch + args.epochs - 1:
+                    logger.info(f"Saving last epoch model...")
+                    checkpoint_path = os.path.join(args.output_dir, "last_model.pth")
+                    save_checkpoint(checkpoint_path, model.module, optimizer, None, epoch)
                 
                 # Progressively form and save the train vs test loss curve
                 import matplotlib.pyplot as plt
@@ -179,8 +184,6 @@ def main(args):
                 plt.savefig(plot_path)
                 plt.close()
                     
-            cnter += 1
-
     cleanup_ddp()
 
 if __name__ == '__main__':
