@@ -103,12 +103,18 @@ class Gemma3Decoder(nn.Module):
 
         # LoRA — same target modules as Qwen3 (Gemma3 uses identical names)
         peft_config = LoraConfig(
-            r=args.lora_r,
+            r=16,
             lora_alpha=32,
             target_modules=[
-                "q_proj", "v_proj",
+                "q_proj",
+                "k_proj",
+                "v_proj",
+                "o_proj",
+                "gate_proj",
+                "up_proj",
+                "down_proj",
             ],
-            lora_dropout=args.lora_dropout,
+            lora_dropout=0.05,
             bias="none",
             task_type=TaskType.CAUSAL_LM,
         )
