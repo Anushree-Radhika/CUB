@@ -46,7 +46,7 @@ class GPT2Decoder(nn.Module):
 
         # LoRA configuration
         peft_config = LoraConfig(
-            r=16,
+            r=args.lora_r,
             lora_alpha=32,
             target_modules=[
                 "c_attn",
@@ -54,7 +54,7 @@ class GPT2Decoder(nn.Module):
                 "mlp.c_fc",
                 "mlp.c_proj",
             ],
-            lora_dropout=0.05,
+            lora_dropout=args.lora_dropout,
             bias="none",
             task_type=TaskType.CAUSAL_LM,
         )

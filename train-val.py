@@ -32,7 +32,7 @@ def get_args_parser():
 
     parser.add_argument('--data_root', default='/home/paul/Paul/DATASETS/cub')
     parser.add_argument('--output_dir', default='output')
-    parser.add_argument('--lr', default=1e-4, type=float)
+    parser.add_argument('--lr', default=5e-5, type=float)
     parser.add_argument('--epochs', default=40, type=int)
     parser.add_argument('--optimizer', default='adam', choices=['sgd', 'adam', 'adamw'],
                         help='Optimizer (default: %(default)s)')
@@ -47,6 +47,11 @@ def get_args_parser():
     parser.add_argument('--validate_model',default=0,type=int)
     parser.add_argument('--load_path',default="scratch")
     parser.add_argument('--drop_parts',default=2,type=int)
+    parser.add_argument('--weight_decay', default=0.01, type=float, help='Weight decay for optimizer')
+    parser.add_argument('--patience', default=5, type=int, help='Patience for early stopping')
+    parser.add_argument('--lora_r', default=16, type=int, help='LoRA rank')
+    parser.add_argument('--lora_dropout', default=0.05, type=float, help='LoRA dropout rate')
+    parser.add_argument('--warmup_epochs', default=1, type=int, help='Warmup epochs for scheduler')
     return parser
 
 def main(args):
@@ -124,20 +129,29 @@ def main(args):
         
         model = DDP(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True)
         optimizer = torch.optim.AdamW(
-            filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr
+            filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=args.weight_decay
         )    
         
         scaler = torch.amp.GradScaler('cuda')
         
+        from transformers import get_cosine_schedule_with_warmup
+        steps_per_epoch = (len(train_loader) + args.grad_accum_steps - 1) // args.grad_accum_steps
+        num_training_steps = steps_per_epoch * args.epochs
+        num_warmup_steps = steps_per_epoch * args.warmup_epochs
+        scheduler = get_cosine_schedule_with_warmup(
+            optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps
+        )
+        
         train_losses_history = []
         val_losses_history = []
         best_val_loss = float('inf')
+        patience_counter = 0
         
         for epoch in range(start_epoch,start_epoch + args.epochs):
             # Set epoch for sampler to ensure proper shuffling across GPUs
             train_sampler.set_epoch(epoch)
 
-            train_loss = train_one_epoch(model, train_loader, optimizer, device, epoch, scaler=scaler, grad_accum_steps=args.grad_accum_steps)
+            train_loss = train_one_epoch(model, train_loader, optimizer, device, epoch, scaler=scaler, grad_accum_steps=args.grad_accum_steps, scheduler=scheduler)
 
             # Log and save checkpoints only from rank 0
             if global_rank == 0:
@@ -145,6 +159,18 @@ def main(args):
             
             val_loss, val_acc, val_f1, sample_gt, sample_gen = validate(args, model, test_loader, device)
             
+            if val_loss < best_val_loss:
+                best_val_loss = val_loss
+                patience_counter = 0
+                if global_rank == 0:
+                    logger.info(f"Validation loss improved. Saving best model...")
+                    checkpoint_path = os.path.join(args.output_dir, "best_model.pth")
+                    save_checkpoint(checkpoint_path, model.module, optimizer, None, epoch)
+            else:
+                patience_counter += 1
+                if global_rank == 0:
+                    logger.info(f"Validation loss did not improve for {patience_counter} epochs.")
+
             if global_rank == 0:
                 val_losses_history.append(val_loss)
                 logger.info(f"\n{'='*60}")
@@ -156,13 +182,6 @@ def main(args):
                 logger.info(f"Sample GT:       {sample_gt}")
                 logger.info(f"Sample Gen:      {sample_gen}")
                 logger.info(f"{'='*60}\n")
-                
-                # Save best model
-                if val_loss < best_val_loss:
-                    best_val_loss = val_loss
-                    logger.info(f"Validation loss improved. Saving best model...")
-                    checkpoint_path = os.path.join(args.output_dir, "best_model.pth")
-                    save_checkpoint(checkpoint_path, model.module, optimizer, None, epoch)
                 
                 # Save last model at the end
                 if epoch == start_epoch + args.epochs - 1:
@@ -184,6 +203,12 @@ def main(args):
                 plot_path = os.path.join(args.output_dir, "loss_curve.png")
                 plt.savefig(plot_path)
                 plt.close()
+                
+            # Check early stopping condition across all ranks
+            if patience_counter >= args.patience:
+                if global_rank == 0:
+                    logger.info(f"Early stopping triggered after {epoch} epochs.")
+                break
                     
     cleanup_ddp()
 

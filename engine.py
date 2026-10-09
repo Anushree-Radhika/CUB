@@ -23,7 +23,7 @@ def reduce_tensor(tensor):
     return rt
 
 
-def train_one_epoch(model, train_loader, optimizer, device, epoch, scaler=None, grad_accum_steps=8):
+def train_one_epoch(model, train_loader, optimizer, device, epoch, scaler=None, grad_accum_steps=8, scheduler=None):
     model.train()
     
     # Safely unwrap DDP model to access custom methods like generate_caption
@@ -69,6 +69,8 @@ def train_one_epoch(model, train_loader, optimizer, device, epoch, scaler=None, 
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad()
+                if scheduler is not None:
+                    scheduler.step()
             
         else:
             loss = model(images, prompt_ids, prompt_mask, target_ids, target_mask, category_mask)
@@ -80,6 +82,8 @@ def train_one_epoch(model, train_loader, optimizer, device, epoch, scaler=None, 
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
                 optimizer.zero_grad()
+                if scheduler is not None:
+                    scheduler.step()
         # Compute accuracy locally
         #batch_accuracy = classification_accuracy(generated_text, category)
 
