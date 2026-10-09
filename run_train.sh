@@ -3,7 +3,7 @@
 # Training script using Distributed Data Parallel (DDP)
 # Needs torchrun even for a single GPU.
 
-CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node=2 main.py \
+CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 main.py \
     --data_root "/home/paul/DATASET/CUB_200_2011" \
     --output_dir "output" \
     --lr 1e-3 \
