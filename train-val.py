@@ -119,15 +119,8 @@ def main(args):
     else:
         # Initialize model and wrap in DDP
         model = TraitGen(args, vision_encoder=vision_encoder).to(device)
-        model_state_path = args.load_path
-        
-        start_epoch = 0
-        
-        if not (model_state_path == "scratch"):
-            start_epoch = load_checkpoint(model_state_path,model,None,None)
-            start_epoch += 1
-        
         model = DDP(model, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True)
+        
         optimizer = torch.optim.AdamW(
             filter(lambda p: p.requires_grad, model.parameters()), lr=args.lr, weight_decay=args.weight_decay
         )    
@@ -141,6 +134,14 @@ def main(args):
         scheduler = get_cosine_schedule_with_warmup(
             optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps
         )
+
+        model_state_path = args.load_path
+        start_epoch = 0
+        
+        if not (model_state_path == "scratch"):
+            # load_checkpoint expects the unwrapped model since save_checkpoint saves model.module
+            start_epoch = load_checkpoint(model_state_path, model.module, optimizer, scheduler)
+            start_epoch += 1
         
         train_losses_history = []
         val_losses_history = []
@@ -165,7 +166,7 @@ def main(args):
                 if global_rank == 0:
                     logger.info(f"Validation loss improved. Saving best model...")
                     checkpoint_path = os.path.join(args.output_dir, "best_model.pth")
-                    save_checkpoint(checkpoint_path, model.module, optimizer, None, epoch)
+                    save_checkpoint(checkpoint_path, model.module, optimizer, scheduler, epoch)
             else:
                 patience_counter += 1
                 if global_rank == 0:
@@ -187,7 +188,11 @@ def main(args):
                 if epoch == start_epoch + args.epochs - 1:
                     logger.info(f"Saving last epoch model...")
                     checkpoint_path = os.path.join(args.output_dir, "last_model.pth")
-                    save_checkpoint(checkpoint_path, model.module, optimizer, None, epoch)
+                    save_checkpoint(checkpoint_path, model.module, optimizer, scheduler, epoch)
+                
+                # Save latest model for resuming in case of interruption
+                checkpoint_path = os.path.join(args.output_dir, "latest_model.pth")
+                save_checkpoint(checkpoint_path, model.module, optimizer, scheduler, epoch)
                 
                 # Progressively form and save the train vs test loss curve
                 import matplotlib.pyplot as plt
