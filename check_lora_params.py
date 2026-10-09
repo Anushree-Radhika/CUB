@@ -12,9 +12,9 @@ peft_config = LoraConfig(
     r=8,
     lora_alpha=32,
     target_modules=[
-        "q_proj", "v_proj"
+        "q_proj", "v_proj",
     ],
-    lora_dropout=0.05,
+    lora_dropout=0.07,
     bias="none",
     task_type=TaskType.CAUSAL_LM,
 )
