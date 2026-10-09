@@ -121,6 +121,13 @@ def validate(args, model, val_loader, device, max_gen_batches=40):
         disable=not is_main_process()
     )
 
+    import random
+    # Pick a random batch to print, up to max_gen_batches or len(val_loader)
+    print_batch_idx = random.randint(0, max(0, min(len(val_loader) - 1, max_gen_batches - 1)))
+    
+    sample_gt = "N/A"
+    sample_gen = "N/A"
+
     for i,batch in enumerate(batches):
         images = batch["image"].to(device)
         prompt_ids = batch["prompt_ids"].to(device)
@@ -142,10 +149,11 @@ def validate(args, model, val_loader, device, max_gen_batches=40):
             with torch.amp.autocast('cuda', dtype=torch.bfloat16):
                 generated_text = raw_model.generate_caption(images, prompt_ids, prompt_mask)
             
-            # Print the first generated text of the first batch to debug
-            if i == 0:
-                sample_gt = batch["caption"][0]
-                sample_gen = generated_text[0]
+            # Print a random generated text from a random batch to debug
+            if i == print_batch_idx:
+                print_sample_idx = random.randint(0, len(batch["caption"]) - 1)
+                sample_gt = batch["caption"][print_sample_idx]
+                sample_gen = generated_text[print_sample_idx]
                 if is_main_process():
                     print(f"\n[DEBUG] Ground Truth: {sample_gt}")
                     print(f"[DEBUG] Generated   : {sample_gen}\n")
