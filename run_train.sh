@@ -6,10 +6,10 @@
 CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node=2 main.py \
     --data_root "/home/paul/DATASET/CUB_200_2011" \
     --output_dir "output" \
-    --lr 5e-5 \
+    --lr 1e-3 \
     --epochs 20 \
     --optimizer "adamw" \
-    --max_seq_len 256 \
+    --max_seq_len 64 \
     --batch_size 4 \
     --grad_accum_steps 8 \
     --encoder_model "hf-hub:imageomics/bioclip" \
@@ -19,8 +19,8 @@ CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node=2 main.py \
     --ann_dir "." \
     --validate_model 0 \
     --load_path "scratch" \
-    --weight_decay 0.05 \
+    --weight_decay 0.03 \
     --patience 5 \
-    --lora_r 16 \
-    --lora_dropout 0.05 \
+    --lora_r 8 \
+    --lora_dropout 0.07 \
     --warmup_epochs 2

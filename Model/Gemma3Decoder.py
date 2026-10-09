@@ -106,8 +106,7 @@ class Gemma3Decoder(nn.Module):
             r=args.lora_r,
             lora_alpha=32,
             target_modules=[
-                "q_proj", "k_proj", "v_proj", "o_proj",
-                "gate_proj", "up_proj", "down_proj",
+                "q_proj", "v_proj",
             ],
             lora_dropout=args.lora_dropout,
             bias="none",
