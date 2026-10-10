@@ -1,12 +1,3 @@
-python infer.py \
-    --output_dir "output" \
+python infer_gemma.py \
     --input_image "scratch" \
-    --max_seq_len 256 \
-    --batch_size 8 \
-    --encoder_model "hf-hub:imageomics/bioclip" \
-    --encoder_op_dim 768 \
-    --decoder_model "google/gemma-3-1b-pt" \
-    --streeing_prompt "species identification and corresponding textual explanation task." \
-    --load_path "output/best_model_21.pth" \
-    --pick_random 20 \
-    --random_dir_path "/home/paul/DATASET/CUB_200_2011/images/001.Black_footed_Albatross"
+    --load_path "output/best_model"

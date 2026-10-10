@@ -1,26 +1,20 @@
 #!/bin/bash
-# run_train.sh
-# Training script using Distributed Data Parallel (DDP)
-# Needs torchrun even for a single GPU.
 
-CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 main.py \
-    --data_root "/home/paul/DATASET/CUB_200_2011" \
+# Force HF to use the standard, stable downloader instead of Xet chunks
+export HF_HUB_DISABLE_XET="1"
+export HF_HUB_DOWNLOAD_TIMEOUT="120"
+export HF_HUB_ETAG_TIMEOUT="30"
+
+# Using torchrun for DDP (Distributed Data Parallel) across 1 GPU
+CUDA_VISIBLE_DEVICES=0 torchrun --nproc_per_node=1 train_gemma.py \
+    --train_json "train.json" \
+    --test_json "test.json" \
+    --img_root "/home/paul/DATASET/CUB_200_2011/images/" \
     --output_dir "output" \
-    --lr 1e-3 \
-    --epochs 20 \
-    --optimizer "adamw" \
-    --max_seq_len 64 \
+    --epochs 10 \
+    --warm_epochs 1 \
     --batch_size 4 \
-    --grad_accum_steps 8 \
-    --encoder_model "hf-hub:imageomics/bioclip" \
-    --encoder_op_dim 768 \
-    --decoder_model "google/gemma-3-1b-pt" \
-    --streeing_prompt "species identification and corresponding textual explanation task." \
-    --ann_dir "." \
-    --validate_model 0 \
-    --load_path "scratch" \
-    --weight_decay 0.03 \
-    --patience 5 \
-    --lora_r 8 \
-    --lora_dropout 0.07 \
-    --warmup_epochs 2
+    --gen_batch_size 16 \
+    --lr_enc 1e-4 \
+    --lr_dec 1e-4 \
+    --lr_proj 1e-3

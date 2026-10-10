@@ -1,6 +1,8 @@
 import torch
 from utils import classification_accuracy
 import torch.distributed as dist
+from torch.cuda.amp import autocast
+import contextlib
 
 def allreduce_sum(vals, device, local_rank):
     t = torch.tensor(vals, dtype=torch.float64, device=device)
@@ -8,24 +10,38 @@ def allreduce_sum(vals, device, local_rank):
         dist.all_reduce(t, op=dist.ReduceOp.SUM)
     return t.tolist()
 
-def train_one_epoch(model, train_loader, optimizer, scheduler, device, eos_token_id, local_rank, epoch, epochs, tqdm_bar=None):
+def train_one_epoch(model, train_loader, optimizer, scheduler, scaler, device, eos_token_id, local_rank, epoch, epochs, grad_accum_steps, tqdm_bar=None):
     model.train()
     train_loss_sum = 0
 
     pbar = tqdm_bar if tqdm_bar is not None else train_loader
-    for pix, ids, attn, lab, sp_mask in pbar:
+    for step, (pix, ids, attn, lab, sp_mask) in enumerate(pbar):
         pix, ids, attn, lab, sp_mask = (x.to(device) for x in (pix, ids, attn, lab, sp_mask))
         
-        loss = model(pix, ids, attn, lab, sp_mask, eos_token_id)
-        loss.backward()
+        is_accumulating = (step + 1) % grad_accum_steps != 0 and (step + 1) != len(train_loader)
         
-        # Clip grad norm across all trainable parameters
-        trainable = [p for p in model.parameters() if p.requires_grad]
-        torch.nn.utils.clip_grad_norm_([p for p in trainable if p.grad is not None], 1.0)
+        sync_context = contextlib.ExitStack()
+        if is_accumulating and local_rank != -1:
+            if hasattr(model, "no_sync"):
+                sync_context.enter_context(model.no_sync())
+                
+        with sync_context:
+            with autocast(dtype=torch.float16):
+                loss = model(pix, ids, attn, lab, sp_mask, eos_token_id)
+                
+            scaled_loss = loss / grad_accum_steps
+            scaler.scale(scaled_loss).backward()
         
-        optimizer.step()
-        scheduler.step()
-        optimizer.zero_grad(set_to_none=True)
+        # Only step the optimizer when accumulation is done
+        if not is_accumulating:
+            scaler.unscale_(optimizer)
+            trainable = [p for p in model.parameters() if p.requires_grad]
+            torch.nn.utils.clip_grad_norm_([p for p in trainable if p.grad is not None], 1.0)
+            
+            scaler.step(optimizer)
+            scaler.update()
+            scheduler.step()
+            optimizer.zero_grad(set_to_none=True)
 
         train_loss_sum += loss.item()
         if local_rank in [-1, 0] and tqdm_bar is not None:

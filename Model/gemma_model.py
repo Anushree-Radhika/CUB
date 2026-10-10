@@ -43,7 +43,7 @@ class GemmaTraitGen(nn.Module):
         clip, self.preprocess_train, self.preprocess_val = open_clip.create_model_and_transforms(clip_id)
         self.visual = clip.visual
         self.visual.output_tokens = True                     # forward returns (pooled, patch_tokens)
-        self.visual = self.visual.to(device, dtype=torch.bfloat16)
+        self.visual = self.visual.to(device, dtype=torch.float16)
         
         for p in self.visual.parameters():
             p.requires_grad = False
@@ -57,7 +57,7 @@ class GemmaTraitGen(nn.Module):
         
         # ------------------------------------------------------------------ decoder (Gemma 3 + LoRA)
         self.lm = AutoModelForCausalLM.from_pretrained(
-            lm_id, torch_dtype=torch.bfloat16, attn_implementation="sdpa"
+            lm_id, torch_dtype=torch.float16, attn_implementation="sdpa"
         ).to(device)
         
         dec_cfg = LoraConfig(
@@ -78,13 +78,13 @@ class GemmaTraitGen(nn.Module):
         vis = self.visual.module if hasattr(self.visual, "module") else self.visual
         proj = self.projector.module if hasattr(self.projector, "module") else self.projector
         
-        _, tokens = vis(pixels.to(self.device, dtype=torch.bfloat16))               # (B, 196, 768)
+        _, tokens = vis(pixels.to(self.device, dtype=torch.float16))               # (B, 196, 768)
         B, N, D = tokens.shape
         s = int(math.sqrt(N))
         grid = tokens.transpose(1, 2).reshape(B, D, s, s).float()
         side = int(math.sqrt(self.n_img_tokens))
         pooled = F.adaptive_avg_pool2d(grid, side).flatten(2).transpose(1, 2)  # (B, 49, 768)
-        return proj(pooled).to(torch.bfloat16)                                 # (B, 49, H)
+        return proj(pooled).to(torch.float16)                                 # (B, 49, H)
 
 
     def forward(self, pixels, input_ids, attn, labels, species_mask, eos_token_id):

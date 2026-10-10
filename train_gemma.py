@@ -22,18 +22,20 @@ def get_args_parser():
     parser.add_argument('--train_json', default='train.json')
     parser.add_argument('--test_json', default='test.json')
     parser.add_argument('--img_root', default='/home/paul/DATASET/CUB_200_2011/images/')
+    parser.add_argument('--output_dir', default='output')
     
     parser.add_argument('--lm_id', default='google/gemma-3-1b-pt')
     parser.add_argument('--clip_id', default='hf-hub:imageomics/bioclip')
     
-    parser.add_argument('--epochs', default=12, type=int)
+    parser.add_argument('--epochs', default=15, type=int)
     parser.add_argument('--warm_epochs', default=1, type=int)
     parser.add_argument('--batch_size', default=4, type=int)
+    parser.add_argument('--grad_accum_steps', default=8, type=int)
     parser.add_argument('--gen_batch_size', default=16, type=int)
     parser.add_argument('--max_len', default=300, type=int)
-    parser.add_argument('--gen_tokens_acc', default=40, type=int)
+    parser.add_argument('--gen_tokens_acc', default=60, type=int)
 
-    parser.add_argument('--lr_enc', default=1e-4, type=float)
+    parser.add_argument('--lr_enc', default=5e-5, type=float)
     parser.add_argument('--lr_dec', default=1e-4, type=float)
     parser.add_argument('--lr_proj', default=1e-3, type=float)
 
@@ -87,10 +89,13 @@ def main(args):
         [{"params": enc_params, "lr": args.lr_enc},
          {"params": dec_params, "lr": args.lr_dec},
          {"params": base_model.projector.parameters(), "lr": args.lr_proj}],
-        weight_decay=0.01,
+        weight_decay=0.05,
     )
     
-    total_steps = args.epochs * len(train_dl)
+    scaler = torch.cuda.amp.GradScaler()
+    
+    total_steps_per_epoch = math.ceil(len(train_dl) / args.grad_accum_steps)
+    total_steps = args.epochs * total_steps_per_epoch
     sched = get_cosine_schedule_with_warmup(opt, int(0.05 * total_steps), total_steps)
 
     def set_lora_trainable(flag):
@@ -113,6 +118,10 @@ def main(args):
         base_model.projector.load_state_dict(s["proj"])
 
     # ------------------------------------------------------------------ train
+    if local_rank in [-1, 0]:
+        os.makedirs(os.path.join(args.output_dir, "best_model"), exist_ok=True)
+        os.makedirs(os.path.join(args.output_dir, "last_model"), exist_ok=True)
+
     best, best_epoch, best_state = math.inf, 0, None
     history_train_loss, history_val_loss = [], []
 
@@ -127,7 +136,7 @@ def main(args):
         pbar = tqdm(train_dl, desc=f"Epoch {ep+1}/{args.epochs}") if local_rank in [-1, 0] else None
         
         avg_train_loss = train_one_epoch(
-            model, train_dl, opt, sched, device, tok.eos_token_id, local_rank, ep, args.epochs, pbar
+            model, train_dl, opt, sched, scaler, device, tok.eos_token_id, local_rank, ep, args.epochs, args.grad_accum_steps, pbar
         )
         
         vl = evaluate_loss(model, val_dl, device, tok.eos_token_id, local_rank)
@@ -157,9 +166,17 @@ def main(args):
             plt.close()
 
             if is_best:
-                base_model.visual.save_pretrained("enc_lora")
-                base_model.lm.save_pretrained("dec_lora")
-                torch.save(base_model.projector.state_dict(), "projector.pt")
+                best_dir = os.path.join(args.output_dir, "best_model")
+                base_model.visual.save_pretrained(os.path.join(best_dir, "enc_lora"))
+                base_model.lm.save_pretrained(os.path.join(best_dir, "dec_lora"))
+                torch.save(base_model.projector.state_dict(), os.path.join(best_dir, "projector.pt"))
+
+    # ------------------------------------------------------------------ save last model
+    if local_rank in [-1, 0]:
+        last_dir = os.path.join(args.output_dir, "last_model")
+        base_model.visual.save_pretrained(os.path.join(last_dir, "enc_lora"))
+        base_model.lm.save_pretrained(os.path.join(last_dir, "dec_lora"))
+        torch.save(base_model.projector.state_dict(), os.path.join(last_dir, "projector.pt"))
 
     # ------------------------------------------------------------------ final evaluation
     restore(best_state)
