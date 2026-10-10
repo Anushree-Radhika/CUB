@@ -32,10 +32,10 @@ def get_args_parser():
     parser.add_argument('--batch_size', default=4, type=int)
     parser.add_argument('--grad_accum_steps', default=8, type=int)
     parser.add_argument('--gen_batch_size', default=16, type=int)
-    parser.add_argument('--max_len', default=300, type=int)
+    parser.add_argument('--max_len', default=256, type=int)
     parser.add_argument('--gen_tokens_acc', default=60, type=int)
 
-    parser.add_argument('--lr_enc', default=5e-5, type=float)
+    parser.add_argument('--lr_enc', default=1e-4, type=float)
     parser.add_argument('--lr_dec', default=1e-4, type=float)
     parser.add_argument('--lr_proj', default=1e-3, type=float)
 
@@ -80,6 +80,13 @@ def main(args):
     base_model = model.module if hasattr(model, "module") else model
 
     # ------------------------------------------------------------------ optimizer
+    if local_rank in [-1, 0]:
+        print("\nVision Encoder (BioCLIP) LoRA:")
+        base_model.visual.print_trainable_parameters()
+        print("Language Model (Gemma 3) LoRA:")
+        base_model.lm.print_trainable_parameters()
+        print("")
+
     enc_params = [p for n, p in base_model.visual.named_parameters() if "lora_" in n]
     dec_params = [p for n, p in base_model.lm.named_parameters() if "lora_" in n]
     for p in enc_params + dec_params:
@@ -124,6 +131,7 @@ def main(args):
 
     best, best_epoch, best_state = math.inf, 0, None
     history_train_loss, history_val_loss = [], []
+    last_vl = None
 
     for ep in range(args.epochs):
         t0 = time.time()
@@ -139,15 +147,21 @@ def main(args):
             model, train_dl, opt, sched, scaler, device, tok.eos_token_id, local_rank, ep, args.epochs, args.grad_accum_steps, pbar
         )
         
-        vl = evaluate_loss(model, val_dl, device, tok.eos_token_id, local_rank)
-
-        is_best = vl < best
-        if is_best:
-            best, best_epoch, best_state = vl, ep + 1, snapshot()
+        # Only evaluate validation loss every 2 epochs, or on the first/final epochs
+        if (ep + 1) % 2 == 0 or (ep + 1) == args.epochs or ep == 0:
+            vl = evaluate_loss(model, val_dl, device, tok.eos_token_id, local_rank)
+            last_vl = vl
+            is_best = vl < best
+            if is_best:
+                best, best_epoch, best_state = vl, ep + 1, snapshot()
+        else:
+            vl = last_vl
+            is_best = False
 
         if local_rank in [-1, 0]:
+            val_str = f"{vl:.4f}" if ((ep + 1) % 2 == 0 or (ep + 1) == args.epochs or ep == 0) else "skipped"
             print(f"epoch {ep+1}/{args.epochs} ({'projector only' if stage1 else 'LoRA + projector'})  "
-                  f"train_loss {avg_train_loss:.4f}  val_loss {vl:.4f}  "
+                  f"train_loss {avg_train_loss:.4f}  val_loss {val_str}  "
                   f"{(time.time()-t0)/60:.1f} min{'  <- best' if is_best else ''}", flush=True)
 
             history_train_loss.append(avg_train_loss)

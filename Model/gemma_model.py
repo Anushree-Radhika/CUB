@@ -61,8 +61,8 @@ class GemmaTraitGen(nn.Module):
         ).to(device)
         
         dec_cfg = LoraConfig(
-            r=8, lora_alpha=16, lora_dropout=0.1, bias="none", task_type="CAUSAL_LM",
-            target_modules=["q_proj", "k_proj", "v_proj", "o_proj"],
+            r=16, lora_alpha=32, lora_dropout=0.1, bias="none", task_type="CAUSAL_LM",
+            target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
         )
         self.lm = get_peft_model(self.lm, dec_cfg)
         
